@@ -61,7 +61,7 @@
         },
         {
           "name": "계좌 목록 조회 (보안ID)",
-          "_output": ["accountNo", "name", "accountType", "status", "openedAt", "closedAt"],
+          "_output": ["accountNo", "name", "accountType", "status", "openedAt", "closedAt", "owner.name", "owner.cif", "balance.amount", "balance.currency"],
           "request": {
             "method": "GET",
             "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],

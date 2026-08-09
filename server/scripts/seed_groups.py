@@ -144,6 +144,43 @@ def _account_list() -> dict:
     }
 
 
+def _account_detail() -> dict:
+    """계좌 상세 조회: 보안 ID로 계좌를 조회하고 소유자/잔고 등 중첩(다차원) 필드를 표로 표시."""
+    return {
+        "id": "account_detail",
+        "domain": "계좌",
+        "task": "조회",
+        "name": "계좌 상세 조회",
+        "description": "보안 사용자 ID로 계좌를 조회하고, 소유자·잔고 같은 중첩 필드까지 표로 보여준다.",
+        "baseInputs": [
+            {"kind": "MANUAL", "key": "sec_user_id", "label": "보안 사용자 ID", "valueType": "string"},
+        ],
+        "steps": [
+            {
+                "id": "step_detail",
+                "order": 1,
+                "name": "계좌 목록 조회 (보안ID)",
+                "apiBinding": {
+                    "catalogEntry": {
+                        "department": "core",
+                        "collectionFile": "core.postman_collection.json",
+                        "itemPath": ["계좌"],
+                        "name": "계좌 목록 조회 (보안ID)",
+                    },
+                    "variableBindings": {
+                        "sec_user_id": {"kind": "USER_INPUT", "inputKey": "sec_user_id"}
+                    },
+                },
+                # 중첩 필드는 점 표기 컬럼으로 지정
+                "resultView": {
+                    "mode": "TABLE",
+                    "columns": ["accountNo", "accountType", "owner.name", "owner.cif", "balance.amount", "balance.currency", "status"],
+                },
+            }
+        ],
+    }
+
+
 def _placeholder(wf_id: str, domain: str, task: str, name: str) -> dict:
     return {
         "id": wf_id,
@@ -174,7 +211,7 @@ def _write(wf: dict) -> None:
 
 
 def main() -> None:
-    for wf in [USER_LOOKUP, ACCOUNT_CLOSE, _account_list(), *PLACEHOLDERS]:
+    for wf in [USER_LOOKUP, ACCOUNT_CLOSE, _account_list(), _account_detail(), *PLACEHOLDERS]:
         _write(wf)
 
 
