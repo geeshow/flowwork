@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 
 import type { WorkflowSummary } from "../../api/client";
-import { colorForDomain } from "../../domainPalette";
 import { refKey } from "../../engine/catalogLookup";
 import type { CatalogEntry, StepApiBinding, StepResultView, ValueSource, WorkflowStep } from "../../types";
 import { BranchConditionEditor } from "./BranchConditionEditor";
@@ -16,7 +15,6 @@ interface Props {
   total: number;
   entries: CatalogEntry[];
   workflows: WorkflowSummary[];
-  domainColors: Record<string, string>;
   selfId: string;
   envKeys: Set<string>;
   inputKeys: string[];
@@ -37,7 +35,6 @@ export function StepEditor({
   total,
   entries,
   workflows,
-  domainColors,
   selfId,
   envKeys,
   inputKeys,
@@ -48,12 +45,6 @@ export function StepEditor({
 }: Props) {
   const mode: "API" | "WORKFLOW" = step.workflowBinding ? "WORKFLOW" : "API";
   const apiBinding = step.apiBinding ?? EMPTY_API_BINDING;
-
-  // 다른 업무를 연결한 스텝이면, 연결된 워크플로우의 도메인 색으로 테두리·불릿을 칠한다.
-  const linkedWf = step.workflowBinding
-    ? workflows.find((w) => w.id === step.workflowBinding!.ref.id)
-    : undefined;
-  const linkColor = linkedWf ? colorForDomain(linkedWf.domain.normalize("NFC"), domainColors) : null;
 
   const selectedEntry = useMemo(
     () => entries.find((e) => refKey(e) === refKey(apiBinding.catalogEntry)) ?? null,
@@ -129,14 +120,10 @@ export function StepEditor({
     });
 
   return (
-    <div
-      className={`step-editor ${linkColor ? "linked" : ""}`}
-      style={linkColor ? { borderColor: linkColor, borderLeftColor: linkColor } : undefined}
-    >
+    <div className="step-editor">
       <div className="step-editor-head">
         <span className="step-order">{index + 1}</span>
         <span className="step-title">
-          {linkColor ? <span className="task-bullet" style={{ background: linkColor }} /> : null}
           {step.name || <span className="muted">새 스텝</span>}
         </span>
         <div className="step-actions">

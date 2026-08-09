@@ -328,12 +328,6 @@ button.primary.small {
   font-size: 13px;
 }
 
-/* linked step (다른 업무 연결) — 도메인 색 테두리 */
-.step-editor.linked {
-  border-width: 1px;
-  border-left-width: 3px;
-}
-
 .detail-empty {
   display: grid;
   place-items: center;

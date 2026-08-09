@@ -31,8 +31,6 @@ const STATUS_META: Record<StepStatus, { icon: string; label: string; cls: string
 interface Props {
   step: Pick<WorkflowStep, "id" | "order" | "name">;
   state: StepExecutionState | undefined;
-  // 다른 업무를 연결한 스텝이면 그 도메인 색상 (테두리 + 이름 앞 불릿)
-  accentColor?: string | null;
   // 응답 표시 방식 (표/원본 + 컬럼). 없으면 원본 JSON.
   resultView?: StepResultView;
   // 스텝 종류 배지: "API" 또는 "연결업무"
@@ -47,7 +45,7 @@ interface Props {
  * 스텝 카드 — 실행 상태를 색/아이콘으로 표시하고, 클릭 시 request/response 전체를
  * JSON 뷰어로 펼친다. 실행 화면과 히스토리 상세가 동일 컴포넌트를 재사용한다.
  */
-export function StepCard({ step, state, accentColor, resultView, typeLabel, category, footer }: Props) {
+export function StepCard({ step, state, resultView, typeLabel, category, footer }: Props) {
   const [open, setOpen] = useState(false);
   // 표 모드로 설정돼 있으면 표를 기본으로, 필요 시 원본 JSON으로 토글
   const [rawResp, setRawResp] = useState(false);
@@ -59,15 +57,7 @@ export function StepCard({ step, state, accentColor, resultView, typeLabel, cate
   const showDetail = hasDetail && (open || !!footer);
 
   return (
-    <div
-      className={`step-card ${meta.cls} ${accentColor ? "linked" : ""}`}
-      // 좌측 보더는 실행 상태 색을 유지하고, 나머지 3면을 도메인 색으로 감싼다
-      style={
-        accentColor
-          ? { borderTopColor: accentColor, borderRightColor: accentColor, borderBottomColor: accentColor }
-          : undefined
-      }
-    >
+    <div className={`step-card ${meta.cls}`}>
       <button
         className="step-head"
         onClick={() => hasDetail && setOpen((v) => !v)}
@@ -75,7 +65,6 @@ export function StepCard({ step, state, accentColor, resultView, typeLabel, cate
       >
         <span className="step-order">{step.order}</span>
         <span className="step-name">
-          {accentColor ? <span className="task-bullet" style={{ background: accentColor }} /> : null}
           <span className="step-name-text">
             <span className="step-name-row">
               {typeLabel ? (

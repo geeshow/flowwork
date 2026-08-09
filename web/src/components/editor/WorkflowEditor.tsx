@@ -314,7 +314,6 @@ export function WorkflowEditor({ mode, id, initialDomain, initialTask, onSaved, 
               total={wf.steps.length}
               entries={entries}
               workflows={workflows}
-              domainColors={domainColors}
               selfId={wf.id}
               envKeys={envKeys}
               inputKeys={inputKeys}
