@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 
 // 스텝 응답을 표로 렌더링한다.
 //  - data에서 { data: ... }를 자동 언랩
@@ -37,39 +37,109 @@ function keysOf(rows: Record<string, unknown>[]): string[] {
   return seen;
 }
 
-/**
- * 가로 스크롤 래퍼 — 오버레이 스크롤바 환경에서도 좌우 스크롤 가능 여부가 보이도록
- * 넘치는 쪽에 페이드 그림자를 표시한다.
- */
-function Scroller({ children }: { children: React.ReactNode }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [fade, setFade] = useState({ left: false, right: false });
+interface ScrollState {
+  overflow: boolean;
+  fadeL: boolean;
+  fadeR: boolean;
+  thumbW: number; // %
+  thumbL: number; // %
+}
+const same = (a: ScrollState, b: ScrollState) =>
+  a.overflow === b.overflow &&
+  a.fadeL === b.fadeL &&
+  a.fadeR === b.fadeR &&
+  Math.abs(a.thumbW - b.thumbW) < 0.5 &&
+  Math.abs(a.thumbL - b.thumbL) < 0.5;
 
-  useEffect(() => {
-    const el = ref.current;
+/**
+ * 가로 스크롤 래퍼 — 오버레이(자동으로 사라지는) 스크롤바 대신, 항상 보이는
+ * 커스텀 스크롤바(드래그 가능)를 하단에 렌더한다. 넘칠 때만 나타난다.
+ */
+function Scroller({ children }: { children: ReactNode }) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
+  const [s, setS] = useState<ScrollState>({ overflow: false, fadeL: false, fadeR: false, thumbW: 100, thumbL: 0 });
+
+  const update = () => {
+    const el = wrapRef.current;
     if (!el) return;
-    const update = () => {
-      setFade({
-        left: el.scrollLeft > 2,
-        right: el.scrollLeft + el.clientWidth < el.scrollWidth - 2,
-      });
+    const { scrollLeft, clientWidth, scrollWidth } = el;
+    const overflow = scrollWidth - clientWidth > 1;
+    const next: ScrollState = {
+      overflow,
+      fadeL: scrollLeft > 2,
+      fadeR: scrollLeft + clientWidth < scrollWidth - 2,
+      thumbW: overflow ? Math.max(8, (clientWidth / scrollWidth) * 100) : 100,
+      thumbL: overflow ? (scrollLeft / scrollWidth) * 100 : 0,
     };
-    update();
+    setS((prev) => (same(prev, next) ? prev : next));
+  };
+
+  // 스크롤/리사이즈 이벤트 구독
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
     el.addEventListener("scroll", update, { passive: true });
     const ro = new ResizeObserver(update);
     ro.observe(el);
+    if (el.firstElementChild) ro.observe(el.firstElementChild);
     return () => {
       el.removeEventListener("scroll", update);
       ro.disconnect();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // 데이터/컬럼 변경 등 매 렌더 후에도 지표 재계산 (same() 가드로 무한루프 방지)
+  useEffect(update);
+
+  const onThumbDown = (e: ReactMouseEvent) => {
+    e.preventDefault();
+    const el = wrapRef.current;
+    const track = trackRef.current;
+    if (!el || !track) return;
+    const startX = e.clientX;
+    const startScroll = el.scrollLeft;
+    const ratio = el.scrollWidth / track.clientWidth; // 트랙 1px 이동당 실제 스크롤 px
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "grabbing";
+    const onMove = (ev: MouseEvent) => {
+      el.scrollLeft = startScroll + (ev.clientX - startX) * ratio;
+    };
+    const onUp = () => {
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+
+  // 트랙 빈 곳 클릭 시 해당 위치로 점프
+  const onTrackDown = (e: ReactMouseEvent) => {
+    if (e.target !== trackRef.current) return;
+    const el = wrapRef.current;
+    const track = trackRef.current;
+    if (!el || !track) return;
+    const rect = track.getBoundingClientRect();
+    const frac = (e.clientX - rect.left) / rect.width;
+    el.scrollLeft = frac * el.scrollWidth - el.clientWidth / 2;
+  };
 
   return (
-    <div className={`result-scroller ${fade.left ? "fade-l" : ""} ${fade.right ? "fade-r" : ""}`}>
-      <div className="result-table-wrap" ref={ref}>
+    <div className={`result-scroller ${s.fadeL ? "fade-l" : ""} ${s.fadeR ? "fade-r" : ""}`}>
+      <div className="result-table-wrap" ref={wrapRef}>
         {children}
       </div>
-      {fade.right ? <span className="scroll-hint">더보기 ›</span> : null}
+      {s.overflow ? (
+        <div className="hscroll" ref={trackRef} onMouseDown={onTrackDown}>
+          <div
+            className="hscroll-thumb"
+            style={{ width: `${s.thumbW}%`, left: `${s.thumbL}%` }}
+            onMouseDown={onThumbDown}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }
