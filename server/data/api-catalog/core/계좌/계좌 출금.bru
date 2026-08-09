@@ -1,0 +1,24 @@
+meta {
+  name: 계좌 출금
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{coreBaseUrl}}/accounts/{{accountNo}}/withdraw
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{authToken}}
+  Content-Type: application/json
+}
+
+body:json {
+  {"amount": {{amount}}, "password": "{{password}}"}
+}
+
+docs {
+  output: accountNo, status, withdrawnAmount, balanceAfter, reason
+}

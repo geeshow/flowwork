@@ -1,0 +1,15 @@
+meta {
+  name: 계좌 활성 상태 코드
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{coreBaseUrl}}/meta/codes/account_status
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{authToken}}
+}

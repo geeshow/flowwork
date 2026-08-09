@@ -1,0 +1,24 @@
+meta {
+  name: 계좌 폐쇄
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{coreBaseUrl}}/accounts/{{accountNo}}/close
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{authToken}}
+  Content-Type: application/json
+}
+
+body:json {
+  {"reason": "{{reason}}"}
+}
+
+docs {
+  output: accountNo, status, closedAt, reason
+}

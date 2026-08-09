@@ -1,0 +1,19 @@
+meta {
+  name: 사용자 정보 조회 (앱ID)
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{coreBaseUrl}}/users/{{app_user_id}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{authToken}}
+}
+
+docs {
+  output: app_user_id, sec_user_id, CIF, name, phone, email
+}

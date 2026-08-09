@@ -1,0 +1,15 @@
+meta {
+  name: 계좌 목록 조회
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{coreBaseUrl}}/users/{{app_user_id}}/accounts?status={{account_status}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{authToken}}
+}

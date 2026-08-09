@@ -1,7 +1,8 @@
-"""API 카탈로그 — Postman Collection v2.1 인덱싱.
+"""API 카탈로그 — Postman Collection v2.1 + Bruno(.bru) 인덱싱.
 
 카탈로그는 배포 단위로 고정되므로 서버 기동 시 1회 로드해 메모리에 평탄화한다
-(부서 디렉토리 → collection 파일 → 폴더 트리 → 개별 요청).
+(부서 디렉토리 → collection 파일 → 폴더 트리 → 개별 요청). 두 형식을 동시에 지원하며
+Bruno는 app/bruno.py가 Postman과 동일한 내부 requestTemplate 형태로 정규화한다.
 """
 from __future__ import annotations
 
@@ -11,6 +12,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from . import bruno
 from .config import CATALOG_DIR
 from .models import CatalogEntry
 
@@ -87,8 +89,12 @@ def _walk_items(
 
 
 def build_index(catalog_dir: Path = CATALOG_DIR) -> tuple[list[CatalogEntry], str | None]:
-    """카탈로그 디렉토리를 스캔해 (엔트리 목록, commit_sha) 반환."""
+    """카탈로그 디렉토리를 스캔해 (엔트리 목록, commit_sha) 반환.
+
+    Postman(*.postman_collection.json)과 Bruno(bruno.json 컬렉션)를 모두 인덱싱한다.
+    """
     entries: list[CatalogEntry] = []
+    # Postman 컬렉션
     for path in sorted(catalog_dir.glob("**/*.postman_collection.json")):
         try:
             collection = json.loads(path.read_text(encoding="utf-8"))
@@ -104,6 +110,19 @@ def build_index(catalog_dir: Path = CATALOG_DIR) -> tuple[list[CatalogEntry], st
             trail=[],
             out=entries,
         )
+    # Bruno 컬렉션 (부서 디렉토리에 bruno.json이 있으면 그 디렉토리의 .bru를 인덱싱)
+    for bruno_json in sorted(catalog_dir.glob("*/bruno.json")):
+        collection_dir = bruno_json.parent
+        department = collection_dir.relative_to(catalog_dir).parts[0]
+        entries.extend(
+            bruno.build_collection_entries(
+                collection_dir,
+                department,
+                _entry_id,
+                CatalogEntry,
+                extract_template_variables,
+            )
+        )
     sha_path = catalog_dir / ".commit_sha"
     commit_sha = sha_path.read_text(encoding="utf-8").strip() if sha_path.exists() else None
     return entries, commit_sha
@@ -117,6 +136,7 @@ def build_environments(catalog_dir: Path = CATALOG_DIR) -> dict[str, str]:
     """
     merged: dict[str, str] = {}
     env_dir = catalog_dir / "environments"
+    # Postman 환경
     for path in sorted(env_dir.glob("*.postman_environment.json")):
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
@@ -125,6 +145,12 @@ def build_environments(catalog_dir: Path = CATALOG_DIR) -> dict[str, str]:
         for v in data.get("values", []):
             if v.get("enabled", True) and "key" in v:
                 merged[v["key"]] = v.get("value", "")
+    # Bruno 환경 (environments/*.bru)
+    for path in sorted(env_dir.glob("*.bru")):
+        try:
+            merged.update(bruno.parse_environment(path.read_text(encoding="utf-8")))
+        except OSError:
+            continue
     return merged
 
 

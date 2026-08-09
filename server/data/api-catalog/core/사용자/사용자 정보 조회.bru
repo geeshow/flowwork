@@ -1,0 +1,19 @@
+meta {
+  name: 사용자 정보 조회
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{coreBaseUrl}}/users?sec_user_id={{sec_user_id}}&cif={{CIF}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{authToken}}
+}
+
+docs {
+  output: app_user_id, sec_user_id, CIF, name, phone, email
+}

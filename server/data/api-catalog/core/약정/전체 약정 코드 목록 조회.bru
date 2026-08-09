@@ -1,0 +1,15 @@
+meta {
+  name: 전체 약정 코드 목록 조회
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{coreBaseUrl}}/agreements/codes
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{authToken}}
+}

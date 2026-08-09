@@ -1,0 +1,19 @@
+meta {
+  name: 계좌 목록 조회 (보안ID)
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{coreBaseUrl}}/accounts?sec_user_id={{sec_user_id}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{authToken}}
+}
+
+docs {
+  output: accountNo, name, accountType, status, openedAt, closedAt, owner.name, owner.cif, balance.amount, balance.currency, tags
+}

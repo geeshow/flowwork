@@ -1,0 +1,15 @@
+meta {
+  name: 메타 코드 조회
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{coreBaseUrl}}/meta/codes/{{code_group}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{authToken}}
+}

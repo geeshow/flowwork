@@ -98,7 +98,7 @@ def _account_close() -> dict:
                 "apiBinding": {
                     "catalogEntry": {
                         "department": "core",
-                        "collectionFile": "core.postman_collection.json",
+                        "collectionFile": "core",
                         "itemPath": ["계좌"],
                         "name": "계좌 폐쇄",
                     },
@@ -164,7 +164,7 @@ def _account_withdraw() -> dict:
                 "apiBinding": {
                     "catalogEntry": {
                         "department": "core",
-                        "collectionFile": "core.postman_collection.json",
+                        "collectionFile": "core",
                         "itemPath": ["계좌"],
                         "name": "계좌 출금",
                     },
@@ -218,7 +218,7 @@ def _account_withdraw_mid() -> dict:
                 "apiBinding": {
                     "catalogEntry": {
                         "department": "core",
-                        "collectionFile": "core.postman_collection.json",
+                        "collectionFile": "core",
                         "itemPath": ["계좌"],
                         "name": "계좌 목록 조회 (보안ID)",
                     },
@@ -250,7 +250,7 @@ def _account_withdraw_mid() -> dict:
                 "apiBinding": {
                     "catalogEntry": {
                         "department": "core",
-                        "collectionFile": "core.postman_collection.json",
+                        "collectionFile": "core",
                         "itemPath": ["계좌"],
                         "name": "계좌 출금",
                     },
@@ -298,7 +298,7 @@ def _account_list() -> dict:
                 "apiBinding": {
                     "catalogEntry": {
                         "department": "core",
-                        "collectionFile": "core.postman_collection.json",
+                        "collectionFile": "core",
                         "itemPath": ["계좌"],
                         "name": "계좌 목록 조회 (보안ID)",
                     },
@@ -335,7 +335,7 @@ def _account_detail() -> dict:
                 "apiBinding": {
                     "catalogEntry": {
                         "department": "core",
-                        "collectionFile": "core.postman_collection.json",
+                        "collectionFile": "core",
                         "itemPath": ["계좌"],
                         "name": "계좌 목록 조회 (보안ID)",
                     },

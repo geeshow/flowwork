@@ -1,0 +1,15 @@
+meta {
+  name: 사용자 상태 코드
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{coreBaseUrl}}/meta/codes/user_status
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{authToken}}
+}
