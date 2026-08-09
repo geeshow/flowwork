@@ -15,6 +15,7 @@ from contextlib import asynccontextmanager
 import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 from app import catalog, storage
 from app.config import ALLOWED_HOST_PREFIXES, PROXY_TIMEOUT_SECONDS
@@ -27,7 +28,7 @@ from app.models import (
     SaveResult,
     WorkflowFile,
 )
-from app.redaction import redact_for_logging, redact_response
+from app.redaction import redact_body, redact_for_logging, redact_response
 from app.secrets import SecretNotFoundError, resolve_vault_deep
 
 
@@ -109,6 +110,29 @@ async def proxy_call(req: ProxyRequest) -> ProxyResponse:
 @app.get("/api/executions")
 async def list_executions() -> dict:
     return {"executions": storage.list_executions()}
+
+
+class ExecutionInputsBody(BaseModel):
+    values: dict[str, object] = {}
+    workflow_id: str | None = None
+
+
+@app.post("/api/executions/{execution_id}/inputs", response_model=SaveResult)
+async def record_execution_inputs(execution_id: str, body: ExecutionInputsBody) -> SaveResult:
+    """실행에 사용된 입력값을 이력에 기록한다(리댁션 적용 — 비밀번호 등 마스킹)."""
+    try:
+        await storage.append_execution_log(
+            execution_id,
+            {
+                "kind": "inputs",
+                "values": redact_body(body.values),
+                "workflow_id": body.workflow_id,
+                "timestamp": time.time(),
+            },
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    return SaveResult(status="saved")
 
 
 @app.get("/api/executions/{execution_id}", response_model=ExecutionDetail)

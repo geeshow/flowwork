@@ -174,3 +174,46 @@ def test_proxy_returns_full_body_but_stores_redacted(client, monkeypatch):
     detail = client.get("/api/executions/e-red").json()
     assert detail["steps"][0]["response"]["body"]["accessToken"] == "***REDACTED***"
     assert detail["steps"][0]["response"]["body"]["data"]["id"] == "X"
+
+
+def test_execution_inputs_recorded_redacted_and_excluded_from_counts(client, monkeypatch):
+    class FakeResp:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {"data": {"ok": True}}
+
+    async def fake_request(self, method, url, **kw):
+        return FakeResp()
+
+    monkeypatch.setattr("httpx.AsyncClient.request", fake_request)
+
+    # 스텝 1건 실행
+    client.post(
+        "/api/proxy",
+        json={
+            "execution_id": "e-in",
+            "step_id": "s1",
+            "workflow_id": "wf1",
+            "method": "GET",
+            "url": "http://localhost:9100/x",
+        },
+    )
+    # 입력값 기록 (비밀번호 포함 → 리댁션)
+    r = client.post(
+        "/api/executions/e-in/inputs",
+        json={"values": {"app_user_id": "U1", "password": "0000"}, "workflow_id": "wf1"},
+    )
+    assert r.status_code == 200
+
+    detail = client.get("/api/executions/e-in").json()
+    inputs = next(s for s in detail["steps"] if s.get("kind") == "inputs")
+    assert inputs["values"]["app_user_id"] == "U1"
+    assert inputs["values"]["password"] == "***REDACTED***"
+
+    # 목록 집계는 입력값 엔트리를 제외하고 스텝만 센다
+    row = next(e for e in client.get("/api/executions").json()["executions"] if e["execution_id"] == "e-in")
+    assert row["step_count"] == 1
+    assert row["overall_status"] == "SUCCESS"
+    assert row["workflow_id"] == "wf1"

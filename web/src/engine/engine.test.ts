@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type {
   PostmanRequest,
+  Primitive,
   StepApiBinding,
   StepExecutionState,
   Workflow,
@@ -369,7 +370,7 @@ describe("runWorkflow", () => {
     // 순차 호출: 첫 번째는 pick1=A1, 두 번째는 pick2=B2
     const seen: string[] = [];
     const collectMidInputs = vi.fn(
-      async (a: Parameters<NonNullable<RunDeps["collectMidInputs"]>>[0]) => {
+      async (a: Parameters<NonNullable<RunDeps["collectMidInputs"]>>[0]): Promise<Record<string, Primitive>> => {
         seen.push(a.step.id);
         return a.step.id === "step_1" ? { pick1: "A1" } : { pick2: "B2" };
       },

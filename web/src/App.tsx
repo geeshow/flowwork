@@ -8,7 +8,7 @@ import {
 } from "react";
 
 import { api, type WorkflowSummary } from "./api/client";
-import { ExecutionDetail, ExecutionList } from "./components/HistoryView";
+import { ExecutionDetail, HistoryMain } from "./components/HistoryView";
 import { WorkflowEditor } from "./components/editor/WorkflowEditor";
 import { WorkflowRunner } from "./components/WorkflowRunner";
 import { colorForDomain } from "./domainPalette";
@@ -20,19 +20,23 @@ type Route =
   | { view: "run"; id: string }
   | { view: "new"; domain?: string; task?: string }
   | { view: "edit"; id: string }
-  | { view: "history" }
+  | { view: "history"; domain?: string; task?: string }
   | { view: "execution"; executionId: string };
 
 function parseHash(): Route {
   const hash = location.hash.replace(/^#\/?/, "");
-  const [head, a, b] = hash.split("/");
+  const parts = hash.split("/");
+  const [head, a, b] = parts;
   const dec = (s?: string) => (s ? decodeURIComponent(s) : undefined);
   if (head === "executions" && a) return { view: "execution", executionId: a };
   if (head === "run" && a) return { view: "run", id: a };
   if (head === "t" && a && b) return { view: "task", domain: dec(a)!, task: dec(b)! };
   if (head === "new") return { view: "new", domain: dec(a), task: dec(b) };
   if (head === "edit" && a) return { view: "edit", id: a };
-  if (head === "history") return { view: "history" };
+  if (head === "history") {
+    if (a === "t" && b && parts[3]) return { view: "history", domain: dec(b), task: dec(parts[3]) };
+    return { view: "history" };
+  }
   return { view: "workflows" };
 }
 
@@ -43,6 +47,8 @@ const newHash = (domain?: string, task?: string) => {
 };
 const taskHash = (domain: string, task: string) =>
   `#/t/${encodeURIComponent(domain)}/${encodeURIComponent(task)}`;
+const historyTaskHash = (domain: string, task: string) =>
+  `#/history/t/${encodeURIComponent(domain)}/${encodeURIComponent(task)}`;
 
 export default function App() {
   const [route, setRoute] = useState<Route>(parseHash());
@@ -57,7 +63,7 @@ export default function App() {
     location.hash = hash;
   };
 
-  const inWorkspace = route.view === "workflows" || route.view === "run" || route.view === "task";
+  const inWorkflows = route.view === "workflows" || route.view === "run" || route.view === "task";
   const navHistoryActive = route.view === "history" || route.view === "execution";
 
   return (
@@ -67,18 +73,20 @@ export default function App() {
           flowwork
         </button>
         <div className="nav-links">
-          <button className={inWorkspace ? "active" : ""} onClick={() => go("#/")}>
+          <button className={inWorkflows ? "active" : ""} onClick={() => go("#/")}>
             워크플로우
           </button>
           <button className={navHistoryActive ? "active" : ""} onClick={() => go("#/history")}>
-            실행 이력
+            워크플로우 이력
           </button>
         </div>
       </nav>
 
       <main className="content">
-        {inWorkspace ? (
+        {inWorkflows ? (
           <WorkflowLayout
+            title="워크플로우"
+            showNew
             activeId={route.view === "run" ? route.id : undefined}
             activeTask={route.view === "task" ? { domain: route.domain, task: route.task } : undefined}
             onOpenTask={(d, t) => go(taskHash(d, t))}
@@ -124,19 +132,46 @@ export default function App() {
           />
         ) : null}
         {route.view === "history" ? (
-          <section>
-            <h2>실행 이력</h2>
-            <ExecutionList onOpen={(id) => go(`#/executions/${id}`)} />
-          </section>
+          <WorkflowLayout
+            title="워크플로우 이력"
+            activeTask={route.domain && route.task ? { domain: route.domain, task: route.task } : undefined}
+            onOpenTask={(d, t) => go(historyTaskHash(d, t))}
+            onNew={() => {}}
+          >
+            <section>
+              <div className="task-detail-head">
+                <div className="crumb">
+                  <h2>워크플로우 이력</h2>
+                  {route.domain && route.task ? (
+                    <>
+                      <span className="muted">·</span>
+                      <span className="muted">
+                        {route.domain} / {route.task}
+                      </span>
+                    </>
+                  ) : null}
+                </div>
+              </div>
+              <HistoryMain
+                activeTask={route.domain && route.task ? { domain: route.domain, task: route.task } : undefined}
+                onOpen={(id) => go(`#/executions/${id}`)}
+              />
+            </section>
+          </WorkflowLayout>
         ) : null}
         {route.view === "execution" ? (
-          <section>
-            <button className="link" onClick={() => go("#/history")}>
-              ← 목록
-            </button>
-            <h2>실행 상세</h2>
-            <ExecutionDetail executionId={route.executionId} />
-          </section>
+          <WorkflowLayout
+            title="워크플로우 이력"
+            onOpenTask={(d, t) => go(historyTaskHash(d, t))}
+            onNew={() => {}}
+          >
+            <section className="execution-page">
+              <button className="link" onClick={() => go("#/history")}>
+                ← 워크플로우 이력
+              </button>
+              <ExecutionDetail executionId={route.executionId} />
+            </section>
+          </WorkflowLayout>
         ) : null}
       </main>
     </div>
@@ -158,12 +193,16 @@ function orderGroups(groups: string[]): string[] {
  * 자식(업무) 메뉴 왼쪽에는 도메인 전용 색상 불릿을 찍어 도메인을 구분한다.
  */
 function WorkflowLayout({
+  title = "워크플로우",
+  showNew = false,
   activeId,
   activeTask,
   onOpenTask,
   onNew,
   children,
 }: {
+  title?: string;
+  showNew?: boolean;
   activeId?: string;
   activeTask?: { domain: string; task: string };
   onOpenTask: (domain: string, task: string) => void;
@@ -271,11 +310,13 @@ function WorkflowLayout({
               <button className="icon-btn" onClick={() => setSbCollapsed(true)} title="메뉴 닫기">
                 ‹
               </button>
-              <h2>워크플로우</h2>
+              <h2>{title}</h2>
             </div>
-            <button className="primary small" onClick={() => onNew(hlDomain)}>
-              + 새로
-            </button>
+            {showNew ? (
+              <button className="primary small" onClick={() => onNew(hlDomain)}>
+                + 새로
+              </button>
+            ) : null}
           </div>
 
           {error ? <div className="error-banner">{error}</div> : null}

@@ -78,6 +78,13 @@ export const api = {
   getExecution: (id: string) =>
     req<{ execution_id: string; steps: unknown[] }>(`/api/executions/${id}`),
 
+  // 실행에 사용된 입력값을 이력에 기록 (서버가 비밀번호 등 리댁션)
+  recordExecutionInputs: (id: string, values: Record<string, unknown>, workflow_id?: string) =>
+    req<{ status: string }>(`/api/executions/${id}/inputs`, {
+      method: "POST",
+      body: JSON.stringify({ values, workflow_id }),
+    }),
+
   // 실행 이력에 남기지 않는 보조 호출 (API_COMBO 옵션 조회 / DEPENDENT_LOOKUP)
   invoke: (request: ResolvedRequest): Promise<ProxyResult> =>
     req<ProxyResult>("/api/proxy", {

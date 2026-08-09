@@ -815,6 +815,104 @@ button.link {
   color: var(--muted);
 }
 
+/* 실행 완료 배너: 헤더 + 공유링크 세로 구성 */
+.result-banner {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+.result-banner-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.result-banner .share-row {
+  margin-bottom: 0;
+}
+.share-row code {
+  overflow-wrap: anywhere;
+}
+
+/* 워크플로우 이력 — 실행 목록 행 (도메인 / 업무 / 작업명 [상태] 시간) */
+.exec-crumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.crumb-sep {
+  color: var(--muted);
+  opacity: 0.6;
+}
+.exec-time {
+  white-space: nowrap;
+}
+.exec-row .exec-wf {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 상태 배지 (성공/실패) */
+.status-badge {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.status-badge.success {
+  color: var(--success);
+  background: rgba(53, 192, 127, 0.14);
+}
+.status-badge.failed {
+  color: var(--failed);
+  background: rgba(240, 97, 109, 0.14);
+}
+
+/* 실행 상세 헤더 (브레드크럼 + 상태 + 시간) */
+.exec-detail-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.exec-detail-head .crumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.exec-detail-head h2 {
+  margin: 0;
+}
+.execution-page {
+  min-width: 0;
+}
+
+/* 실행에 사용된 입력값 */
+.exec-inputs {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.exec-inputs-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+.exec-inputs .field-key {
+  margin-left: 6px;
+  font-weight: 400;
+}
+
 .empty {
   padding: 20px 0;
 }

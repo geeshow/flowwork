@@ -58,17 +58,19 @@ def list_executions() -> list[dict[str, Any]]:
             lines = [json.loads(l) for l in path.read_text(encoding="utf-8").splitlines() if l.strip()]
         except (json.JSONDecodeError, OSError):
             continue
-        if not lines:
+        # 스텝 로그만 상태/개수 집계에 사용 (입력값 등 메타 엔트리는 제외)
+        step_lines = [l for l in lines if l.get("step_id")]
+        if not step_lines:
             continue
-        statuses = [s.get("response", {}).get("status") for s in lines]
+        statuses = [s.get("response", {}).get("status") for s in step_lines]
         overall = "SUCCESS" if all(s and 200 <= s < 300 for s in statuses) else "FAILED"
         out.append(
             {
                 "execution_id": path.stem,
-                "step_count": len(lines),
+                "step_count": len(step_lines),
                 "overall_status": overall,
-                "started_at": lines[0].get("timestamp"),
-                "workflow_id": lines[0].get("workflow_id"),
+                "started_at": step_lines[0].get("timestamp"),
+                "workflow_id": step_lines[0].get("workflow_id"),
             }
         )
     out.sort(key=lambda e: e.get("started_at") or 0, reverse=True)

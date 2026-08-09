@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { api, type WorkflowSummary } from "../api/client";
 import { colorForDomain } from "../domainPalette";
@@ -43,6 +43,8 @@ export function WorkflowRunner({ workflow, onOpenExecution }: Props) {
     resolve: (v: Record<string, Primitive>) => void;
   } | null>(null);
   const [midValues, setMidValues] = useState<Record<string, Primitive>>({});
+  // 실행에 사용된 입력값(기본 + 중간) 누적 — 실행 후 이력에 기록
+  const runInputsRef = useRef<Record<string, Primitive>>({});
 
   useEffect(() => {
     let alive = true;
@@ -83,6 +85,7 @@ export function WorkflowRunner({ workflow, onOpenExecution }: Props) {
     setResult(null);
     setStates(new Map());
     setMidPrompt(null);
+    runInputsRef.current = { ...values }; // 기본 입력값 스냅샷 (중간 입력은 제출 시 병합)
 
     const wfCache = new Map<string, Workflow>();
     const deps: RunDeps = {
@@ -110,6 +113,10 @@ export function WorkflowRunner({ workflow, onOpenExecution }: Props) {
 
     try {
       const res = await runWorkflow(workflow, values, deps, onStepUpdate);
+      // 실행에 쓰인 입력값(기본+중간)을 이력에 기록 (서버가 비밀번호 등 리댁션)
+      await api
+        .recordExecutionInputs(res.executionId, runInputsRef.current, workflow.id)
+        .catch(() => {});
       setResult(res);
     } catch (e) {
       setLoadError((e as Error).message);
@@ -120,6 +127,7 @@ export function WorkflowRunner({ workflow, onOpenExecution }: Props) {
 
   function submitMid() {
     if (!midPrompt) return;
+    Object.assign(runInputsRef.current, midValues); // 중간 입력도 이력 기록 대상
     midPrompt.resolve({ ...midValues });
     setMidPrompt(null);
     setMidValues({});
@@ -213,12 +221,27 @@ export function WorkflowRunner({ workflow, onOpenExecution }: Props) {
 
       {result ? (
         <div className={`result-banner ${result.overallStatus.toLowerCase()}`}>
-          <span>
-            실행 완료 — <strong>{result.overallStatus}</strong>
-          </span>
-          <button className="link" onClick={() => onOpenExecution(result.executionId)}>
-            실행 이력 열기 →
-          </button>
+          <div className="result-banner-head">
+            <span>
+              실행 완료 — <strong>{result.overallStatus}</strong>
+            </span>
+            <button className="link" onClick={() => onOpenExecution(result.executionId)}>
+              워크플로우 이력에서 열기 →
+            </button>
+          </div>
+          <div className="share-row">
+            <code>{`${location.origin}${location.pathname}#/executions/${result.executionId}`}</code>
+            <button
+              className="link"
+              onClick={() =>
+                navigator.clipboard?.writeText(
+                  `${location.origin}${location.pathname}#/executions/${result.executionId}`,
+                )
+              }
+            >
+              공유 링크 복사
+            </button>
+          </div>
         </div>
       ) : null}
     </div>
