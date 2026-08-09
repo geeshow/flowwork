@@ -149,6 +149,7 @@ export interface CatalogEntry {
   method: string;
   url: string;
   variables: string[];
+  outputFields: string[]; // API 명세서상 응답(output) 필드
   requestTemplate: PostmanRequest;
 }
 

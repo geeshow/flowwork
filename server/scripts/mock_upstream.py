@@ -79,8 +79,8 @@ _META_CODES = {
 }
 
 _USERS = {
-    "U1000": {"app_user_id": "U1000", "sec_user_id": "SEC-8F3A21", "name": "김철수", "phone": "010-1111-2222", "email": "chulsoo@example.com"},
-    "U1001": {"app_user_id": "U1001", "sec_user_id": "SEC-2B7C90", "name": "이영희", "phone": "010-3333-4444", "email": "younghee@example.com"},
+    "U1000": {"app_user_id": "U1000", "sec_user_id": "SEC-8F3A21", "CIF": "CIF001122", "name": "김철수", "phone": "010-1111-2222", "email": "chulsoo@example.com"},
+    "U1001": {"app_user_id": "U1001", "sec_user_id": "SEC-2B7C90", "CIF": "CIF334455", "name": "이영희", "phone": "010-3333-4444", "email": "younghee@example.com"},
 }
 
 _ACCOUNTS = {
@@ -115,8 +115,17 @@ async def get_meta_codes(code_group: str):
     return {"data": _META_CODES.get(code_group, [])}
 
 
+@app.get("/core/users")
+async def get_user(sec_user_id: str | None = None, cif: str | None = None):
+    """sec_user_id 또는 CIF 중 하나로 사용자를 조회한다."""
+    for u in _USERS.values():
+        if (sec_user_id and u["sec_user_id"] == sec_user_id) or (cif and u["CIF"] == cif):
+            return {"data": u}
+    return {"data": None}
+
+
 @app.get("/core/users/{app_user_id}")
-async def get_user(app_user_id: str):
+async def get_user_by_app_id(app_user_id: str):
     return {"data": _USERS.get(app_user_id)}
 
 

@@ -29,3 +29,13 @@ def test_entry_ids_are_stable_and_unique():
     entries, _ = build_index(CATALOG_DIR)
     ids = [e.id for e in entries]
     assert len(ids) == len(set(ids))
+
+
+def test_output_fields_parsed_from_spec():
+    entries, _ = build_index(CATALOG_DIR)
+    by_name = {e.name: e for e in entries}
+    # _output 명세가 있는 항목은 outputFields로 노출된다
+    user = by_name["사용자 정보 조회"]
+    assert user.outputFields == ["app_user_id", "sec_user_id", "CIF", "name", "phone", "email"]
+    # _output이 없는 항목은 빈 목록
+    assert by_name["정산 조회"].outputFields == []

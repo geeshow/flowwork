@@ -288,6 +288,8 @@ export function WorkflowEditor({ mode, id, initialDomain, initialTask, onSaved, 
         <InputDefEditor
           inputs={wf.baseInputs}
           entries={entries}
+          inputKeys={inputKeys}
+          envKeys={[...envKeys]}
           onChange={(baseInputs) => patch({ baseInputs })}
         />
       </section>

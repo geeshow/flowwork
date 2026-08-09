@@ -80,6 +80,7 @@ class CatalogEntry(BaseModel):
     method: str
     url: str
     variables: list[str] = Field(default_factory=list)
+    outputFields: list[str] = Field(default_factory=list)  # API 명세서상 응답(output) 필드
     requestTemplate: dict[str, Any]
 
 

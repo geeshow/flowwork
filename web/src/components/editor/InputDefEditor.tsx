@@ -4,6 +4,8 @@ import { CatalogPicker } from "./CatalogPicker";
 interface Props {
   inputs: StepInputDef[];
   entries: CatalogEntry[];
+  inputKeys: string[]; // 다른 기본 입력값 key (의존 입력 key 후보)
+  envKeys: string[]; // 환경변수 key (의존 입력 key 후보)
   onChange: (inputs: StepInputDef[]) => void;
 }
 
@@ -23,7 +25,7 @@ function blankInput(kind: InputKind, key: string, label: string): StepInputDef {
 }
 
 /** 입력값 정의(4종) 편집 — key/label + kind별 세부 필드. */
-export function InputDefEditor({ inputs, entries, onChange }: Props) {
+export function InputDefEditor({ inputs, entries, inputKeys, envKeys, onChange }: Props) {
   const update = (i: number, patch: Partial<StepInputDef>) =>
     onChange(inputs.map((inp, idx) => (idx === i ? ({ ...inp, ...patch } as StepInputDef) : inp)));
 
@@ -58,14 +60,17 @@ export function InputDefEditor({ inputs, entries, onChange }: Props) {
             </button>
           </div>
 
-          <KindFields input={inp} entries={entries} onPatch={(patch) => update(i, patch)} />
+          <KindFields
+            input={inp}
+            entries={entries}
+            depKeyOptions={inputKeys.filter((k) => k && k !== inp.key)}
+            envKeys={envKeys}
+            onPatch={(patch) => update(i, patch)}
+          />
         </div>
       ))}
 
-      <button
-        className="link"
-        onClick={() => onChange([...inputs, blankInput("MANUAL", "", "")])}
-      >
+      <button className="link" onClick={() => onChange([...inputs, blankInput("MANUAL", "", "")])}>
         + 입력값 추가
       </button>
     </div>
@@ -75,10 +80,14 @@ export function InputDefEditor({ inputs, entries, onChange }: Props) {
 function KindFields({
   input,
   entries,
+  depKeyOptions,
+  envKeys,
   onPatch,
 }: {
   input: StepInputDef;
   entries: CatalogEntry[];
+  depKeyOptions: string[];
+  envKeys: string[];
   onPatch: (patch: Partial<StepInputDef>) => void;
 }) {
   switch (input.kind) {
@@ -156,31 +165,107 @@ function KindFields({
         </div>
       );
 
-    case "DEPENDENT_LOOKUP":
+    case "DEPENDENT_LOOKUP": {
+      const lookupEntry = entries.find((e) => e.id === input.lookupApiId) ?? null;
+      const outs = lookupEntry?.outputFields ?? [];
       return (
         <div className="def-sub def-col">
-          <div className="grid2">
-            <input placeholder="dependsOnKey (의존 입력 key)" value={input.dependsOnKey} onChange={(e) => onPatch({ dependsOnKey: e.target.value })} />
-            <input
-              placeholder="valueField (확정 값 필드, 예: sec_user_id)"
-              value={input.valueField ?? ""}
-              onChange={(e) => onPatch({ valueField: e.target.value })}
-            />
-          </div>
-          <input
-            placeholder="displayFields (콤마, 예: name,phone)"
-            value={input.displayFields.join(",")}
-            onChange={(e) => onPatch({ displayFields: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
-          />
           <div className="def-field">
-            <span className="def-field-label">조회 API (변수명 = dependsOnKey)</span>
+            <span className="def-field-label">조회 API</span>
             <CatalogPicker
               entries={entries}
               selectedId={input.lookupApiId || null}
               onSelect={(e) => onPatch({ lookupApiId: e.id })}
             />
           </div>
+
+          <div className="grid2">
+            <div className="def-field">
+              <span className="def-field-label">의존 입력 key</span>
+              {depKeyOptions.length + envKeys.length > 0 ? (
+                <select value={input.dependsOnKey} onChange={(e) => onPatch({ dependsOnKey: e.target.value })}>
+                  <option value="" disabled>
+                    선택…
+                  </option>
+                  {depKeyOptions.length ? (
+                    <optgroup label="기본 입력값">
+                      {depKeyOptions.map((k) => (
+                        <option key={k} value={k}>
+                          {k}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ) : null}
+                  {envKeys.length ? (
+                    <optgroup label="환경변수">
+                      {envKeys.map((k) => (
+                        <option key={k} value={k}>
+                          {k}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ) : null}
+                </select>
+              ) : (
+                <input placeholder="dependsOnKey" value={input.dependsOnKey} onChange={(e) => onPatch({ dependsOnKey: e.target.value })} />
+              )}
+            </div>
+
+            <div className="def-field">
+              <span className="def-field-label">확정 값 필드 (valueField)</span>
+              {outs.length ? (
+                <select value={input.valueField ?? ""} onChange={(e) => onPatch({ valueField: e.target.value })}>
+                  <option value="">(의존값 그대로)</option>
+                  {outs.map((f) => (
+                    <option key={f} value={f}>
+                      {f}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  placeholder="valueField (조회 API 선택 시 목록)"
+                  value={input.valueField ?? ""}
+                  onChange={(e) => onPatch({ valueField: e.target.value })}
+                />
+              )}
+            </div>
+          </div>
+
+          <div className="def-field">
+            <span className="def-field-label">표시 필드 (displayFields · 다중 선택)</span>
+            {outs.length ? (
+              <div className="checkbox-row">
+                {outs.map((f) => {
+                  const on = input.displayFields.includes(f);
+                  return (
+                    <label key={f} className={`checkbox-chip ${on ? "on" : ""}`}>
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={(e) =>
+                          onPatch({
+                            displayFields: e.target.checked
+                              ? [...input.displayFields, f]
+                              : input.displayFields.filter((x) => x !== f),
+                          })
+                        }
+                      />
+                      {f}
+                    </label>
+                  );
+                })}
+              </div>
+            ) : (
+              <input
+                placeholder="displayFields (콤마, 조회 API 선택 시 다중 선택)"
+                value={input.displayFields.join(",")}
+                onChange={(e) => onPatch({ displayFields: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
+              />
+            )}
+          </div>
         </div>
       );
+    }
   }
 }

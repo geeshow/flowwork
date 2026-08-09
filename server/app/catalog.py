@@ -68,6 +68,8 @@ def _walk_items(
         request = item.get("request")
         if not isinstance(request, dict):
             continue
+        raw_output = item.get("_output")
+        output_fields = [str(f) for f in raw_output] if isinstance(raw_output, list) else []
         out.append(
             CatalogEntry(
                 id=_entry_id(department, collection_file, trail, name),
@@ -78,6 +80,7 @@ def _walk_items(
                 method=request.get("method", "GET"),
                 url=_request_url(request),
                 variables=extract_template_variables(request),
+                outputFields=output_fields,
                 requestTemplate=request,
             )
         )

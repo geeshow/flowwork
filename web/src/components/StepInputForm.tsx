@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 
-import type { Primitive, StepInputDef } from "../types";
+import type { EnvironmentValues, Primitive, StepInputDef } from "../types";
 import { useApiCombo } from "./ApiComboProvider";
 
 interface Props {
   inputs: StepInputDef[];
   values: Record<string, Primitive>;
+  env?: EnvironmentValues;
   onChange: (key: string, value: Primitive) => void;
 }
 
@@ -14,7 +15,7 @@ interface Props {
  * (values, onChange)로 노출한다. 폼의 최종 결과값이 곧 실행 엔진의
  * ExecutionContext.userInputs가 된다.
  */
-export function StepInputForm({ inputs, values, onChange }: Props) {
+export function StepInputForm({ inputs, values, env, onChange }: Props) {
   if (inputs.length === 0) {
     return <p className="muted">사용자 입력 없음</p>;
   }
@@ -26,7 +27,7 @@ export function StepInputForm({ inputs, values, onChange }: Props) {
             {def.label}
             <code className="field-key">{def.key}</code>
           </span>
-          <InputControl def={def} values={values} onChange={onChange} />
+          <InputControl def={def} values={values} env={env} onChange={onChange} />
         </label>
       ))}
     </div>
@@ -36,10 +37,12 @@ export function StepInputForm({ inputs, values, onChange }: Props) {
 function InputControl({
   def,
   values,
+  env,
   onChange,
 }: {
   def: StepInputDef;
   values: Record<string, Primitive>;
+  env?: EnvironmentValues;
   onChange: (key: string, value: Primitive) => void;
 }) {
   switch (def.kind) {
@@ -82,7 +85,7 @@ function InputControl({
       return <ApiComboInput def={def} value={values[def.key]} onChange={onChange} />;
 
     case "DEPENDENT_LOOKUP":
-      return <DependentLookupInput def={def} value={values[def.key]} values={values} onChange={onChange} />;
+      return <DependentLookupInput def={def} value={values[def.key]} values={values} env={env} onChange={onChange} />;
   }
 }
 
@@ -138,15 +141,18 @@ function DependentLookupInput({
   def,
   value,
   values,
+  env,
   onChange,
 }: {
   def: Extract<StepInputDef, { kind: "DEPENDENT_LOOKUP" }>;
   value: Primitive | undefined;
   values: Record<string, Primitive>;
+  env?: EnvironmentValues;
   onChange: (key: string, value: Primitive) => void;
 }) {
   const { lookup } = useApiCombo();
-  const dependValue = values[def.dependsOnKey];
+  // 의존 입력 key는 기본입력값 또는 환경변수에서 온다.
+  const dependValue = values[def.dependsOnKey] ?? env?.[def.dependsOnKey] ?? null;
   const [info, setInfo] = useState<Record<string, unknown> | null>(null);
   const [status, setStatus] = useState<"idle" | "loading" | "ok" | "fail">("idle");
 

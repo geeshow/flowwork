@@ -128,6 +128,7 @@ export function WorkflowRunner({ workflow, onOpenExecution }: Props) {
         <StepInputForm
           inputs={allInputs}
           values={values}
+          env={env}
           onChange={(key, value) => setValues((v) => ({ ...v, [key]: value }))}
         />
         <div className="input-run-row">

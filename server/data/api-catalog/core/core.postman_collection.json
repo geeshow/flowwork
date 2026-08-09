@@ -26,13 +26,18 @@
       "item": [
         {
           "name": "사용자 정보 조회",
+          "_output": ["app_user_id", "sec_user_id", "CIF", "name", "phone", "email"],
           "request": {
             "method": "GET",
             "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
             "url": {
-              "raw": "{{coreBaseUrl}}/users/{{app_user_id}}",
+              "raw": "{{coreBaseUrl}}/users?sec_user_id={{sec_user_id}}&cif={{CIF}}",
               "host": ["{{coreBaseUrl}}"],
-              "path": ["users", "{{app_user_id}}"]
+              "path": ["users"],
+              "query": [
+                { "key": "sec_user_id", "value": "{{sec_user_id}}" },
+                { "key": "cif", "value": "{{CIF}}" }
+              ]
             }
           }
         }

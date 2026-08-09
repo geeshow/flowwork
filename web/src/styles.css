@@ -924,6 +924,27 @@ button.link {
   color: var(--muted);
   font-size: 13px;
 }
+.checkbox-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.checkbox-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+.checkbox-chip.on {
+  border-color: var(--accent);
+  color: var(--text);
+}
 .combo-opt {
   display: flex;
   gap: 6px;

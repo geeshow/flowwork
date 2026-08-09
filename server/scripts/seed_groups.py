@@ -97,20 +97,20 @@ ACCOUNT_CLOSE = {
 
 
 def _account_list() -> dict:
-    """계좌 목록 조회: app_user_id → (사용자 조회로 sec_user_id 자동 확정) → 계좌 목록 조회."""
+    """계좌 목록 조회: CIF → (사용자 조회로 sec_user_id 자동 확정) → 계좌 목록 조회."""
     return {
         "id": "account_list",
         "domain": "계좌",
         "task": "조회",
         "name": "계좌 목록 조회",
-        "description": "app_user_id로 사용자를 조회해 sec_user_id를 자동 확정하고, 그 계좌 목록을 조회한다.",
+        "description": "고객식별번호(CIF)로 사용자를 조회해 sec_user_id를 자동 확정하고, 그 계좌 목록을 조회한다.",
         "baseInputs": [
-            {"kind": "MANUAL", "key": "app_user_id", "label": "앱 사용자 ID", "valueType": "string"},
+            {"kind": "MANUAL", "key": "CIF", "label": "고객식별번호(CIF)", "valueType": "string"},
             {
                 "kind": "DEPENDENT_LOOKUP",
                 "key": "sec_user_id",
                 "label": "보안 사용자 ID",
-                "dependsOnKey": "app_user_id",
+                "dependsOnKey": "CIF",
                 "lookupApiId": _catalog_id("사용자 정보 조회"),
                 "displayFields": ["name", "sec_user_id"],
                 "valueField": "sec_user_id",

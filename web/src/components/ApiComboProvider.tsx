@@ -70,8 +70,14 @@ export function ApiComboProvider({
       const entry = entryById.get(lookupApiId);
       if (!entry) throw new Error(`조회 API를 찾을 수 없습니다: ${lookupApiId}`);
       // 의존값은 {{dependsOnKey}} 변수에 채운다 (조회 API의 변수명 = dependsOnKey 규약).
-      const binding = refBinding(entry, { [dependsOnKey]: { kind: "FIXED", value: dependValue } });
-      const request = resolveTemplate(entry.requestTemplate, binding, baseCtx(env));
+      // sec_user_id/CIF 처럼 "둘 중 하나"만 쓰는 API를 위해, 나머지 비-환경 변수는
+      // 빈 문자열로 채워 미해결 에러를 막는다 (env 변수는 fallback으로 해결됨).
+      const bindings: StepApiBinding["variableBindings"] = {};
+      for (const v of entry.variables) {
+        if (v === dependsOnKey) bindings[v] = { kind: "FIXED", value: dependValue };
+        else if (!(v in env)) bindings[v] = { kind: "FIXED", value: "" };
+      }
+      const request = resolveTemplate(entry.requestTemplate, refBinding(entry, bindings), baseCtx(env));
       const res = await api.invoke(request);
       return extractOne(res.response.body);
     },
