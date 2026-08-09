@@ -119,9 +119,6 @@ export function WorkflowRunner({ workflow, onOpenExecution }: Props) {
           <h2>{workflow.name}</h2>
           {workflow.description ? <p className="muted">{workflow.description}</p> : null}
         </div>
-        <button className="primary" onClick={handleRun} disabled={running || !!loadError}>
-          {running ? "실행 중…" : "실행"}
-        </button>
       </header>
 
       {loadError ? <div className="error-banner">{loadError}</div> : null}
@@ -133,6 +130,11 @@ export function WorkflowRunner({ workflow, onOpenExecution }: Props) {
           values={values}
           onChange={(key, value) => setValues((v) => ({ ...v, [key]: value }))}
         />
+        <div className="input-run-row">
+          <button className="primary" onClick={handleRun} disabled={running || !!loadError}>
+            {running ? "실행 중…" : "실행"}
+          </button>
+        </div>
       </section>
 
       <section className="panel">

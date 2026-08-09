@@ -88,7 +88,6 @@ export default function App() {
                 domain={route.domain}
                 task={route.task}
                 onRun={(i) => go(`#/run/${i}`)}
-                onEdit={(i) => go(`#/edit/${i}`)}
                 onNew={() => go(newHash(route.domain, route.task))}
               />
             ) : (
@@ -167,6 +166,8 @@ function WorkflowLayout({
   const [rows, setRows] = useState<WorkflowSummary[] | null>(null);
   const [colors, setColors] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  // 아코디언: 펼친 도메인 하나만 업무 목록을 보여준다 (미선택 도메인은 접힘)
+  const [openDomain, setOpenDomain] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -184,8 +185,13 @@ function WorkflowLayout({
 
   // 실행 중인 워크플로우가 있으면 그 (도메인,업무)를 강조 대상으로
   const runningWf = useMemo(() => rows?.find((w) => w.id === activeId) ?? null, [rows, activeId]);
-  const hlDomain = activeTask?.domain ?? runningWf?.domain;
-  const hlTask = activeTask?.task ?? runningWf?.task;
+  const hlDomain = (activeTask?.domain ?? runningWf?.domain)?.normalize("NFC");
+  const hlTask = (activeTask?.task ?? runningWf?.task)?.normalize("NFC");
+
+  // 선택된 업무가 있으면 그 도메인을 자동으로 펼친다
+  useEffect(() => {
+    if (hlDomain) setOpenDomain(hlDomain);
+  }, [hlDomain]);
 
   // 도메인 → 업무(정렬) 트리
   const tree = useMemo(() => {
@@ -224,39 +230,41 @@ function WorkflowLayout({
           <nav className="domain-tree">
             {tree.map(({ domain, tasks }) => {
               const color = colorForDomain(domain, colors);
+              const open = openDomain === domain;
               return (
-                <div key={domain} className="domain-group">
-                  <div className="domain-head">
+                <div key={domain} className={`domain-group ${open ? "open" : ""}`}>
+                  <button
+                    className="domain-head"
+                    onClick={() => setOpenDomain((cur) => (cur === domain ? null : domain))}
+                    aria-expanded={open}
+                  >
+                    <span className="domain-caret">{open ? "▾" : "▸"}</span>
                     <span className="domain-swatch" style={{ background: color }} />
                     <span className="domain-name">{domain}</span>
-                    <button
-                      className="domain-add"
-                      title={`${domain}에 새 워크플로우`}
-                      onClick={() => onNew(domain)}
-                    >
-                      +
-                    </button>
-                  </div>
-                  {tasks.length === 0 ? (
-                    <div className="task-empty muted">업무 없음</div>
-                  ) : (
-                    <ul className="task-menu">
-                      {tasks.map((task) => {
-                        const on = hlDomain === domain && hlTask === task;
-                        return (
-                          <li key={task}>
-                            <button
-                              className={`task-item ${on ? "active" : ""}`}
-                              onClick={() => onOpenTask(domain, task)}
-                            >
-                              <span className="task-bullet" style={{ background: color }} />
-                              <span className="task-text">{task}</span>
-                            </button>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
+                    <span className="domain-count">{tasks.length}</span>
+                  </button>
+                  {open ? (
+                    tasks.length === 0 ? (
+                      <div className="task-empty muted">업무 없음</div>
+                    ) : (
+                      <ul className="task-menu">
+                        {tasks.map((task) => {
+                          const on = hlDomain === domain && hlTask === task;
+                          return (
+                            <li key={task}>
+                              <button
+                                className={`task-item ${on ? "active" : ""}`}
+                                onClick={() => onOpenTask(domain, task)}
+                              >
+                                <span className="task-bullet" style={{ background: color }} />
+                                <span className="task-text">{task}</span>
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )
+                  ) : null}
                 </div>
               );
             })}
@@ -274,13 +282,11 @@ function TaskDetail({
   domain,
   task,
   onRun,
-  onEdit,
   onNew,
 }: {
   domain: string;
   task: string;
   onRun: (id: string) => void;
-  onEdit: (id: string) => void;
   onNew: () => void;
 }) {
   const [rows, setRows] = useState<WorkflowSummary[] | null>(null);
@@ -330,20 +336,18 @@ function TaskDetail({
       ) : (
         <div className="wf-card-grid">
           {items.map((w) => (
-            <div key={w.id} className="wf-card" style={{ borderLeftColor: color }}>
-              <button className="wf-card-main" onClick={() => onRun(w.id)}>
-                <span className="wf-card-title">
-                  <span className="task-bullet" style={{ background: color }} />
-                  {w.name}
-                </span>
-                {w.description ? <span className="muted">{w.description}</span> : null}
-              </button>
-              <div className="wf-card-actions">
-                <button className="wf-edit" onClick={() => onEdit(w.id)}>
-                  편집
-                </button>
-              </div>
-            </div>
+            <button
+              key={w.id}
+              className="wf-card wf-card-main"
+              style={{ borderLeftColor: color }}
+              onClick={() => onRun(w.id)}
+            >
+              <span className="wf-card-title">
+                <span className="task-bullet" style={{ background: color }} />
+                {w.name}
+              </span>
+              {w.description ? <span className="muted">{w.description}</span> : null}
+            </button>
           ))}
         </div>
       )}
@@ -362,6 +366,7 @@ function RunDetail({
 }) {
   const [wf, setWf] = useState<Workflow | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [dup, setDup] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -376,6 +381,31 @@ function RunDetail({
     };
   }, [id]);
 
+  // 복제: 같은 (도메인,업무) 안에서 유일한 이름으로 사본을 만들고 편집 화면으로 이동.
+  // 스텝 id는 그대로 유지한다 (PREV_RESPONSE 매핑·분기 조건이 스텝 id를 참조).
+  async function handleDuplicate() {
+    if (!wf) return;
+    setDup(true);
+    setError(null);
+    try {
+      const siblings = await api.listWorkflows();
+      const taken = new Set(
+        siblings
+          .filter((s) => s.domain === wf.domain && s.task === wf.task)
+          .map((s) => s.name),
+      );
+      let name = `${wf.name} 복사`;
+      for (let n = 2; taken.has(name); n++) name = `${wf.name} 복사 ${n}`;
+      const copy: Workflow = { ...wf, id: crypto.randomUUID(), name };
+      await api.saveWorkflow(copy);
+      onEdit(copy.id);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setDup(false);
+    }
+  }
+
   if (error) return <div className="error-banner">{error}</div>;
   if (!wf) return <p className="muted">불러오는 중…</p>;
   return (
@@ -384,9 +414,14 @@ function RunDetail({
         <button className="link" onClick={() => (location.hash = taskHash(wf.domain, wf.task))}>
           ← {wf.domain} / {wf.task}
         </button>
-        <button className="link" onClick={() => onEdit(id)}>
-          편집 →
-        </button>
+        <div className="run-actions">
+          <button className="link" onClick={handleDuplicate} disabled={dup}>
+            {dup ? "복제 중…" : "복제"}
+          </button>
+          <button className="link" onClick={() => onEdit(id)}>
+            편집 →
+          </button>
+        </div>
       </div>
       <WorkflowRunner workflow={wf} onOpenExecution={onOpenExecution} />
     </>

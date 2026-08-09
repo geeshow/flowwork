@@ -91,10 +91,22 @@ button.primary.small {
   gap: 4px;
 }
 .domain-head {
+  width: 100%;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 2px 4px;
+  padding: 6px 6px;
+  border-radius: 7px;
+  text-align: left;
+}
+.domain-head:hover {
+  background: var(--panel);
+}
+.domain-caret {
+  color: var(--muted);
+  font-size: 10px;
+  width: 10px;
+  flex-shrink: 0;
 }
 .domain-swatch {
   width: 10px;
@@ -108,20 +120,11 @@ button.primary.small {
   letter-spacing: -0.01em;
   flex: 1;
 }
-.domain-add {
-  width: 22px;
-  height: 22px;
-  border-radius: 6px;
-  border: 1px solid var(--border);
+.domain-count {
+  font-size: 11px;
   color: var(--muted);
-  display: inline-grid;
-  place-items: center;
-  font-size: 15px;
-  line-height: 1;
-}
-.domain-add:hover {
-  color: var(--text);
-  border-color: var(--accent);
+  min-width: 16px;
+  text-align: right;
 }
 .task-menu {
   list-style: none;
@@ -635,7 +638,22 @@ button.link {
 .run-topbar {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   margin-bottom: 8px;
+}
+.run-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+/* 실행 버튼: 입력값 박스 안 하단 우측 */
+.input-run-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
 }
 
 /* group tabs */
