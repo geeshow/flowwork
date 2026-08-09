@@ -46,6 +46,7 @@ export function WorkflowEditor({ mode, id, onSaved, onCancel }: Props) {
   const [workflows, setWorkflows] = useState<WorkflowSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [envOpen, setEnvOpen] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -214,6 +215,29 @@ export function WorkflowEditor({ mode, id, onSaved, onCancel }: Props) {
             />
           </label>
         </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-head">
+          <h3>환경 변수 <span className="hint">({Object.keys(env).length}개 · 읽기 전용)</span></h3>
+          <button className="link" onClick={() => setEnvOpen((v) => !v)}>
+            {envOpen ? "접기" : "보기"}
+          </button>
+        </div>
+        {envOpen ? (
+          Object.keys(env).length === 0 ? (
+            <p className="muted">환경 변수가 없습니다.</p>
+          ) : (
+            <div className="env-list">
+              {Object.entries(env).map(([k, v]) => (
+                <div key={k} className="env-row">
+                  <code className="env-key">{k}</code>
+                  <code className="env-val">{v}</code>
+                </div>
+              ))}
+            </div>
+          )
+        ) : null}
       </section>
 
       <section className="panel">

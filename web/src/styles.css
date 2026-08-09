@@ -822,6 +822,31 @@ button.link {
   width: 100%;
 }
 
+/* env variables (collapsible, read-only) */
+.env-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.env-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+.env-key {
+  color: var(--accent);
+  min-width: 140px;
+  flex-shrink: 0;
+}
+.env-val {
+  color: var(--text);
+  word-break: break-all;
+}
+
 /* processing mode toggle (API vs workflow link) */
 .processing-head {
   display: flex;
