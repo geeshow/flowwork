@@ -646,21 +646,75 @@ button.link {
 }
 
 /* result table (표 모드) — 넓으면 내부에서 가로 스크롤 */
+.result-scroller {
+  position: relative;
+}
+/* 오버레이 스크롤바 환경에서도 좌우 이동을 알리는 페이드 + 힌트 */
+.result-scroller::before,
+.result-scroller::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 32px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 1;
+}
+.result-scroller::before {
+  left: 0;
+  background: linear-gradient(to right, var(--bg), transparent);
+}
+.result-scroller::after {
+  right: 0;
+  background: linear-gradient(to left, var(--bg), transparent);
+}
+.result-scroller.fade-l::before {
+  opacity: 1;
+}
+.result-scroller.fade-r::after {
+  opacity: 1;
+}
+.scroll-hint {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  z-index: 2;
+  pointer-events: none;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1px 7px;
+}
 .result-table-wrap {
   max-width: 100%;
   overflow-x: auto;
-  padding: 4px;
+  padding: 4px 4px 2px;
   scrollbar-width: thin;
+  scrollbar-color: var(--muted) var(--panel-2);
 }
-.result-table-wrap::-webkit-scrollbar {
-  height: 10px;
+.result-table-wrap::-webkit-scrollbar,
+.json-block pre::-webkit-scrollbar {
+  height: 12px;
 }
-.result-table-wrap::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 5px;
+.result-table-wrap::-webkit-scrollbar-track,
+.json-block pre::-webkit-scrollbar-track {
+  background: var(--panel-2);
+  border-radius: 6px;
 }
-.result-table-wrap::-webkit-scrollbar-thumb:hover {
+.result-table-wrap::-webkit-scrollbar-thumb,
+.json-block pre::-webkit-scrollbar-thumb {
   background: var(--muted);
+  border-radius: 6px;
+  border: 3px solid var(--panel-2);
+}
+.result-table-wrap::-webkit-scrollbar-thumb:hover,
+.json-block pre::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
 }
 .result-table {
   border-collapse: collapse;

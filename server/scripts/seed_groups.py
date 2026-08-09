@@ -177,7 +177,7 @@ def _account_detail() -> dict:
                     "columns": [
                         "accountNo", "accountType",
                         "owner.name", "owner.cif", "balance.amount", "balance.currency",
-                        "status", "owner", "balance",
+                        "status", "tags", "owner", "balance",
                     ],
                 },
             }

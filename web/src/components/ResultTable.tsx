@@ -1,3 +1,5 @@
+import { useEffect, useRef, useState } from "react";
+
 // 스텝 응답을 표로 렌더링한다.
 //  - data에서 { data: ... }를 자동 언랩
 //  - 언랩 결과가 배열이면: 각 원소가 행, columns가 열 (columns 비면 전체 키 자동)
@@ -35,6 +37,43 @@ function keysOf(rows: Record<string, unknown>[]): string[] {
   return seen;
 }
 
+/**
+ * 가로 스크롤 래퍼 — 오버레이 스크롤바 환경에서도 좌우 스크롤 가능 여부가 보이도록
+ * 넘치는 쪽에 페이드 그림자를 표시한다.
+ */
+function Scroller({ children }: { children: React.ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [fade, setFade] = useState({ left: false, right: false });
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const update = () => {
+      setFade({
+        left: el.scrollLeft > 2,
+        right: el.scrollLeft + el.clientWidth < el.scrollWidth - 2,
+      });
+    };
+    update();
+    el.addEventListener("scroll", update, { passive: true });
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener("scroll", update);
+      ro.disconnect();
+    };
+  }, []);
+
+  return (
+    <div className={`result-scroller ${fade.left ? "fade-l" : ""} ${fade.right ? "fade-r" : ""}`}>
+      <div className="result-table-wrap" ref={ref}>
+        {children}
+      </div>
+      {fade.right ? <span className="scroll-hint">더보기 ›</span> : null}
+    </div>
+  );
+}
+
 export function ResultTable({ data, columns }: { data: unknown; columns: string[] }) {
   const root = unwrap(data);
 
@@ -43,7 +82,7 @@ export function ResultTable({ data, columns }: { data: unknown; columns: string[
     const cols = columns.length ? columns : keysOf(rows);
     if (rows.length === 0) return <p className="muted result-empty">결과 없음 (빈 배열)</p>;
     return (
-      <div className="result-table-wrap">
+      <Scroller>
         <table className="result-table">
           <thead>
             <tr>
@@ -62,7 +101,7 @@ export function ResultTable({ data, columns }: { data: unknown; columns: string[
             ))}
           </tbody>
         </table>
-      </div>
+      </Scroller>
     );
   }
 
@@ -70,7 +109,7 @@ export function ResultTable({ data, columns }: { data: unknown; columns: string[
     const obj = root as Record<string, unknown>;
     const cols = columns.length ? columns : Object.keys(obj);
     return (
-      <div className="result-table-wrap">
+      <Scroller>
         <table className="result-table kv">
           <tbody>
             {cols.map((c) => (
@@ -81,7 +120,7 @@ export function ResultTable({ data, columns }: { data: unknown; columns: string[
             ))}
           </tbody>
         </table>
-      </div>
+      </Scroller>
     );
   }
 

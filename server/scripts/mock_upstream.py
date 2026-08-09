@@ -97,13 +97,13 @@ _ACCOUNTS = {
 _SEC_ACCOUNTS = {
     "SEC-8F3A21": [
         {"accountNo": "110-222-333", "name": "김철수", "accountType": "펀드", "status": "ACTIVE", "openedAt": "2021-03-15", "closedAt": None,
-         "owner": {"name": "김철수", "cif": "CIF001122"}, "balance": {"amount": 15230000, "currency": "KRW"}},
+         "owner": {"name": "김철수", "cif": "CIF001122"}, "balance": {"amount": 15230000, "currency": "KRW"}, "tags": ["우대", "비과세"]},
         {"accountNo": "110-444-555", "name": "김철수", "accountType": "신탁", "status": "CLOSED", "openedAt": "2019-07-01", "closedAt": "2023-02-10",
-         "owner": {"name": "김철수", "cif": "CIF001122"}, "balance": {"amount": 0, "currency": "KRW"}},
+         "owner": {"name": "김철수", "cif": "CIF001122"}, "balance": {"amount": 0, "currency": "KRW"}, "tags": []},
     ],
     "SEC-2B7C90": [
         {"accountNo": "220-666-777", "name": "이영희", "accountType": "연금", "status": "ACTIVE", "openedAt": "2022-11-20", "closedAt": None,
-         "owner": {"name": "이영희", "cif": "CIF334455"}, "balance": {"amount": 8400000, "currency": "KRW"}},
+         "owner": {"name": "이영희", "cif": "CIF334455"}, "balance": {"amount": 8400000, "currency": "KRW"}, "tags": ["온라인", "수수료면제"]},
     ],
 }
 
