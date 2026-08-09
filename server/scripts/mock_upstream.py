@@ -79,8 +79,8 @@ _META_CODES = {
 }
 
 _USERS = {
-    "U1000": {"app_user_id": "U1000", "name": "김철수", "phone": "010-1111-2222", "email": "chulsoo@example.com"},
-    "U1001": {"app_user_id": "U1001", "name": "이영희", "phone": "010-3333-4444", "email": "younghee@example.com"},
+    "U1000": {"app_user_id": "U1000", "sec_user_id": "SEC-8F3A21", "name": "김철수", "phone": "010-1111-2222", "email": "chulsoo@example.com"},
+    "U1001": {"app_user_id": "U1001", "sec_user_id": "SEC-2B7C90", "name": "이영희", "phone": "010-3333-4444", "email": "younghee@example.com"},
 }
 
 _ACCOUNTS = {
