@@ -7,9 +7,10 @@ import type {
   StepExecutionState,
   Workflow,
   WorkflowStep,
+  WorkflowStepResult,
 } from "../types";
 import { evaluateBranchCondition } from "./branch";
-import type { ExecutionContext } from "./resolver";
+import { resolveValue, type ExecutionContext } from "./resolver";
 import { resolveTemplate } from "./template";
 
 /** 프록시 호출 결과 (서버 /api/proxy 응답 형태). */
@@ -28,6 +29,8 @@ export interface RunDeps {
     request: ResolvedRequest;
   }) => Promise<ProxyResult>;
   env: EnvironmentValues;
+  /** 다른 업무(워크플로우) 연결 스텝을 위해 하위 워크플로우를 로드. */
+  getWorkflow?: (group: string, id: string) => Promise<Workflow> | Workflow;
   /** 기본 crypto.randomUUID. 테스트에서 주입 가능. */
   newExecutionId?: () => string;
 }
@@ -42,13 +45,19 @@ export interface RunOptions {
   retriedFromExecutionId?: string;
 }
 
+interface Runtime {
+  executionId: string;
+  stepPrefix: string; // 중첩 스텝 id를 유일하게 만들기 위한 접두사 (예: "step_1/")
+  callStack: Set<string>; // 순환 참조 방지용 워크플로우 id 경로
+  resumeFrom?: RunOptions["resumeFrom"];
+}
+
 const isOk = (status: number | null): boolean =>
   status !== null && status >= 200 && status < 300;
 
 /**
- * 워크플로우 실행 루프. 스텝을 order 순으로 순회하며
- * 분기 판단 → 템플릿 리졸브 → 프록시 호출 → 상태 콜백을 반복한다.
- * 실행 로직은 전부 여기(프론트)에 있고, 서버는 개별 호출 proxy만 담당한다.
+ * 워크플로우 실행 진입점. 실행 로직은 전부 여기(프론트)에 있고,
+ * 서버는 개별 API 호출 proxy만 담당한다.
  */
 export async function runWorkflow(
   workflow: Workflow,
@@ -59,62 +68,134 @@ export async function runWorkflow(
 ): Promise<ExecutionResult> {
   const newId = deps.newExecutionId ?? (() => crypto.randomUUID());
   const executionId = newId();
+  const result = await executeWorkflow(workflow, userInputs, deps, onStepUpdate, {
+    executionId,
+    stepPrefix: "",
+    callStack: new Set([workflow.id]),
+    resumeFrom: options.resumeFrom,
+  });
+  return { executionId, overallStatus: result.overallStatus };
+}
+
+/**
+ * 실제 스텝 순회 루프. 하위 워크플로우 연결 시 자기 자신을 재귀 호출한다.
+ * 각 워크플로우는 자신만의 ctx(로컬 step.id 기준)를 가지므로 분기/PREV_RESPONSE
+ * 참조가 워크플로우 경계를 넘지 않는다.
+ */
+async function executeWorkflow(
+  workflow: Workflow,
+  userInputs: Record<string, Primitive>,
+  deps: RunDeps,
+  onStepUpdate: (state: StepExecutionState) => void,
+  runtime: Runtime,
+): Promise<{ overallStatus: "SUCCESS" | "FAILED"; stepResponses: Map<string, unknown> }> {
   const ctx: ExecutionContext = {
     userInputs,
-    stepResponses: new Map(options.resumeFrom?.prefilledResponses ?? []),
+    stepResponses: new Map(runtime.resumeFrom?.prefilledResponses ?? []),
   };
   let hadFailure = false;
 
   const orderedSteps = [...workflow.steps].sort((a, b) => a.order - b.order);
-  let reached = options.resumeFrom === undefined;
+  let reached = runtime.resumeFrom === undefined;
 
   for (const step of orderedSteps) {
+    const uid = `${runtime.stepPrefix}${step.id}`;
+
     // 재처리: 재개 지점 이전 스텝은 건너뛴다(응답은 prefilled로 이미 시드됨).
     if (!reached) {
-      if (step.id === options.resumeFrom!.fromStepId) reached = true;
+      if (step.id === runtime.resumeFrom!.fromStepId) reached = true;
       else continue;
     }
 
     if (!evaluateBranchCondition(step, ctx)) {
-      onStepUpdate({ stepId: step.id, status: "SKIPPED" });
+      onStepUpdate({ stepId: uid, status: "SKIPPED" });
       continue;
     }
 
-    onStepUpdate({ stepId: step.id, status: "RUNNING" });
+    onStepUpdate({ stepId: uid, status: "RUNNING" });
 
     try {
-      const template = deps.getRequestTemplate(step);
-      const request = resolveTemplate(template, step.apiBinding, deps.env, ctx);
+      const ok = step.workflowBinding
+        ? await runWorkflowStep(step, workflow, ctx, deps, onStepUpdate, runtime, uid)
+        : await runApiStep(step, workflow, ctx, deps, onStepUpdate, runtime, uid);
 
-      const result = await deps.proxy({
-        execution_id: executionId,
-        step_id: step.id,
-        workflow_id: workflow.id,
-        request,
-      });
-
-      ctx.stepResponses.set(step.id, result.response.body);
-      const ok = isOk(result.response.status);
-      onStepUpdate({
-        stepId: step.id,
-        status: ok ? "SUCCESS" : "FAILED",
-        request,
-        response: result.response.body,
-      });
       if (!ok) {
         hadFailure = true;
         if (step.stopOnFailure) break;
       }
     } catch (e) {
       hadFailure = true;
-      onStepUpdate({
-        stepId: step.id,
-        status: "FAILED",
-        error: (e as Error).message,
-      });
+      onStepUpdate({ stepId: uid, status: "FAILED", error: (e as Error).message });
       if (step.stopOnFailure) break;
     }
   }
 
-  return { executionId, overallStatus: hadFailure ? "FAILED" : "SUCCESS" };
+  return { overallStatus: hadFailure ? "FAILED" : "SUCCESS", stepResponses: ctx.stepResponses };
+}
+
+/** API 호출 스텝. */
+async function runApiStep(
+  step: WorkflowStep,
+  workflow: Workflow,
+  ctx: ExecutionContext,
+  deps: RunDeps,
+  onStepUpdate: (state: StepExecutionState) => void,
+  runtime: Runtime,
+  uid: string,
+): Promise<boolean> {
+  if (!step.apiBinding) throw new Error("처리 API가 설정되지 않았습니다.");
+  const template = deps.getRequestTemplate(step);
+  const request = resolveTemplate(template, step.apiBinding, deps.env, ctx);
+
+  const result = await deps.proxy({
+    execution_id: runtime.executionId,
+    step_id: uid,
+    workflow_id: workflow.id,
+    request,
+  });
+
+  ctx.stepResponses.set(step.id, result.response.body);
+  const ok = isOk(result.response.status);
+  onStepUpdate({ stepId: uid, status: ok ? "SUCCESS" : "FAILED", request, response: result.response.body });
+  return ok;
+}
+
+/** 다른 업무(워크플로우) 연결 스텝 — 하위 워크플로우를 재귀 실행. */
+async function runWorkflowStep(
+  step: WorkflowStep,
+  _workflow: Workflow,
+  ctx: ExecutionContext,
+  deps: RunDeps,
+  onStepUpdate: (state: StepExecutionState) => void,
+  runtime: Runtime,
+  uid: string,
+): Promise<boolean> {
+  const wb = step.workflowBinding!;
+  if (!deps.getWorkflow) throw new Error("워크플로우 연결이 지원되지 않습니다 (getWorkflow 미설정).");
+  if (runtime.callStack.has(wb.ref.id)) {
+    throw new Error(`워크플로우 순환 참조: ${wb.ref.id}`);
+  }
+
+  // 부모 컨텍스트 → 하위 워크플로우 입력값 매핑
+  const subInputs: Record<string, Primitive> = {};
+  for (const [key, source] of Object.entries(wb.inputMappings)) {
+    subInputs[key] = resolveValue(source, ctx);
+  }
+
+  const subWorkflow = await deps.getWorkflow(wb.ref.group, wb.ref.id);
+  const subResult = await executeWorkflow(subWorkflow, subInputs, deps, onStepUpdate, {
+    executionId: runtime.executionId,
+    stepPrefix: `${uid}/`,
+    callStack: new Set([...runtime.callStack, subWorkflow.id]),
+  });
+
+  const response: WorkflowStepResult = {
+    status: subResult.overallStatus,
+    steps: Object.fromEntries(subResult.stepResponses),
+  };
+  ctx.stepResponses.set(step.id, response);
+
+  const ok = subResult.overallStatus === "SUCCESS";
+  onStepUpdate({ stepId: uid, status: ok ? "SUCCESS" : "FAILED", response });
+  return ok;
 }

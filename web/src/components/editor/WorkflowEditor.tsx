@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { api } from "../../api/client";
+import { api, type WorkflowSummary } from "../../api/client";
 import type { CatalogEntry, EnvironmentValues, Workflow, WorkflowStep } from "../../types";
 import { StepEditor } from "./StepEditor";
 
@@ -12,7 +12,8 @@ interface Props {
   onCancel: () => void;
 }
 
-const SAFE_SEGMENT = /^[A-Za-z0-9_-]+$/;
+// 단어문자 + 한글 + 하이픈 (그룹명에 한글 허용, '/'·'.'·공백 배제)
+const SAFE_SEGMENT = /^[\w가-힣-]+$/;
 
 function emptyWorkflow(): Workflow {
   return { id: "", group: "", name: "", description: "", steps: [] };
@@ -35,16 +36,18 @@ export function WorkflowEditor({ mode, group, id, onSaved, onCancel }: Props) {
   const [wf, setWf] = useState<Workflow | null>(mode === "new" ? emptyWorkflow() : null);
   const [entries, setEntries] = useState<CatalogEntry[]>([]);
   const [env, setEnv] = useState<EnvironmentValues>({});
+  const [workflows, setWorkflows] = useState<WorkflowSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     let alive = true;
-    Promise.all([api.searchCatalog(""), api.getEnvironments()])
-      .then(([cat, envs]) => {
+    Promise.all([api.searchCatalog(""), api.getEnvironments(), api.listWorkflows()])
+      .then(([cat, envs, wfs]) => {
         if (!alive) return;
         setEntries(cat.results);
         setEnv(envs);
+        setWorkflows(wfs);
       })
       .catch((e) => alive && setError((e as Error).message));
     return () => {
@@ -91,7 +94,13 @@ export function WorkflowEditor({ mode, group, id, onSaved, onCancel }: Props) {
     if (!SAFE_SEGMENT.test(w.id)) return "ID는 영문/숫자/-/_ 만 사용할 수 있습니다.";
     if (!w.name.trim()) return "이름을 입력하세요.";
     for (const [idx, s] of w.steps.entries()) {
-      if (!s.apiBinding.catalogEntry.name) return `${idx + 1}번 스텝: 처리 API를 선택하세요.`;
+      if (s.workflowBinding) {
+        if (!s.workflowBinding.ref.id) return `${idx + 1}번 스텝: 연결할 업무를 선택하세요.`;
+      } else if (s.apiBinding) {
+        if (!s.apiBinding.catalogEntry.name) return `${idx + 1}번 스텝: 처리 API를 선택하세요.`;
+      } else {
+        return `${idx + 1}번 스텝: 처리 방식(API 또는 업무 연결)을 설정하세요.`;
+      }
     }
     return null;
   }
@@ -188,6 +197,8 @@ export function WorkflowEditor({ mode, group, id, onSaved, onCancel }: Props) {
               index={i}
               total={wf.steps.length}
               entries={entries}
+              workflows={workflows}
+              selfId={wf.id}
               envKeys={envKeys}
               inputKeys={inputKeys}
               prevSteps={wf.steps.slice(0, i).map((s) => ({ id: s.id, label: `${s.name} (${s.id})` }))}

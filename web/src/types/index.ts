@@ -69,6 +69,14 @@ export interface StepApiBinding {
   inlineRequest?: PostmanRequest;
 }
 
+// 처리 단계로 "다른 업무(워크플로우)"를 연결한다.
+// 부모 컨텍스트(사용자 입력 / 이전 응답)를 하위 워크플로우의 입력값으로 매핑해 실행한다.
+export interface StepWorkflowBinding {
+  ref: { group: string; id: string };
+  // 하위 워크플로우 입력값 key → ValueSource (부모 컨텍스트 기준으로 리졸브)
+  inputMappings: Record<string, ValueSource>;
+}
+
 // ---------------------------------------------------------------------------
 // 워크플로우 / 스텝
 // ---------------------------------------------------------------------------
@@ -79,9 +87,18 @@ export interface WorkflowStep {
   order: number;
   name: StepName | string;
   inputs: StepInputDef[];
-  apiBinding: StepApiBinding;
+  // 처리 단계는 둘 중 하나: API 호출(apiBinding) 또는 다른 업무 연결(workflowBinding)
+  apiBinding?: StepApiBinding;
+  workflowBinding?: StepWorkflowBinding;
   branchCondition?: BranchCondition;
   stopOnFailure?: boolean;
+}
+
+// 워크플로우 스텝의 결과 형태 (이후 스텝이 PREV_RESPONSE로 참조 가능)
+export interface WorkflowStepResult {
+  status: "SUCCESS" | "FAILED";
+  // 하위 스텝 id → 응답 body
+  steps: Record<string, unknown>;
 }
 
 export interface Workflow {

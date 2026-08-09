@@ -40,7 +40,9 @@ class WorkflowStep(BaseModel):
     order: int
     name: str
     inputs: list[dict[str, Any]] = Field(default_factory=list)
+    # 처리 단계: API 호출(apiBinding) 또는 다른 업무 연결(workflowBinding) 중 하나
     apiBinding: dict[str, Any] | None = None
+    workflowBinding: dict[str, Any] | None = None
     branchCondition: dict[str, Any] | None = None
     stopOnFailure: bool = False
 

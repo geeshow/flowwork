@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type {
   PostmanRequest,
   StepApiBinding,
+  StepExecutionState,
   Workflow,
   WorkflowStep,
 } from "../types";
@@ -247,5 +248,126 @@ describe("runWorkflow", () => {
     );
     expect(res.overallStatus).toBe("SUCCESS");
     expect(proxy).toHaveBeenCalledTimes(1); // step_1은 건너뜀
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 워크플로우 연결 (다른 업무를 스텝으로 연결)
+// ---------------------------------------------------------------------------
+function apiBinding(vb: StepApiBinding["variableBindings"] = {}): StepApiBinding {
+  return {
+    catalogEntry: { department: "g", collectionFile: "c", itemPath: [], name: "x" },
+    variableBindings: vb,
+  };
+}
+
+function subWorkflow(): Workflow {
+  return {
+    id: "sub_lookup",
+    group: "account",
+    name: "사용자 조회(하위)",
+    steps: [
+      {
+        id: "s_call",
+        order: 1,
+        name: "조회",
+        inputs: [],
+        apiBinding: apiBinding({ userId: { kind: "USER_INPUT", inputKey: "userId" } }),
+      },
+    ],
+  };
+}
+
+function parentWorkflow(): Workflow {
+  return {
+    id: "parent_flow",
+    group: "account",
+    name: "상위 업무",
+    steps: [
+      {
+        id: "p1",
+        order: 1,
+        name: "조회",
+        inputs: [],
+        // 다른 업무(sub_lookup) 연결: 부모 입력 accountId → 하위 입력 userId
+        workflowBinding: {
+          ref: { group: "account", id: "sub_lookup" },
+          inputMappings: { userId: { kind: "USER_INPUT", inputKey: "accountId" } },
+        },
+      },
+      {
+        id: "p2",
+        order: 2,
+        name: "수정",
+        inputs: [],
+        // 하위 워크플로우 결과를 PREV_RESPONSE로 참조 ($.steps.<하위스텝id>...)
+        apiBinding: apiBinding({
+          name: { kind: "PREV_RESPONSE", stepId: "p1", jsonPath: "$.steps.s_call.data.name" },
+        }),
+      },
+    ],
+  };
+}
+
+describe("runWorkflow - 워크플로우 연결", () => {
+  const template = (): PostmanRequest => ({ method: "GET", url: { raw: "http://localhost/x" } });
+
+  function deps(proxy: RunDeps["proxy"], workflows: Record<string, Workflow>): RunDeps {
+    let n = 0;
+    return {
+      getRequestTemplate: template,
+      proxy,
+      env: {},
+      getWorkflow: (_g, id) => workflows[id],
+      newExecutionId: () => `exec-${++n}`,
+    };
+  }
+
+  it("하위 워크플로우를 실행하고 입력 매핑 + 결과 참조가 동작", async () => {
+    const proxy = vi.fn(async (_p: Parameters<RunDeps["proxy"]>[0]): Promise<ProxyResult> => ({
+      response: { status: 200, body: { data: { name: "홍길동" } } },
+    }));
+    const updates: string[] = [];
+    const res = await runWorkflow(
+      parentWorkflow(),
+      { accountId: "A1" },
+      deps(proxy, { sub_lookup: subWorkflow() }),
+      (s) => updates.push(`${s.stepId}:${s.status}`),
+    );
+
+    expect(res.overallStatus).toBe("SUCCESS");
+    // 하위 스텝은 접두사 붙은 id로, 상위 스텝은 그대로
+    expect(updates).toContain("p1/s_call:SUCCESS");
+    expect(updates).toContain("p1:SUCCESS");
+    expect(updates).toContain("p2:SUCCESS");
+
+    // 하위 호출 step_id 접두사 + 상위 입력이 하위 입력으로 매핑됐는지
+    const subCall = proxy.mock.calls.find((c) => c[0].step_id === "p1/s_call");
+    expect(subCall).toBeTruthy();
+    expect(proxy).toHaveBeenCalledTimes(2); // 하위 s_call + 상위 p2
+  });
+
+  it("순환 참조를 감지해 해당 스텝 실패", async () => {
+    const selfRef: Workflow = {
+      id: "loop",
+      group: "account",
+      name: "자기참조",
+      steps: [
+        {
+          id: "x",
+          order: 1,
+          name: "조회",
+          inputs: [],
+          workflowBinding: { ref: { group: "account", id: "loop" }, inputMappings: {} },
+        },
+      ],
+    };
+    const proxy = vi.fn(async (): Promise<ProxyResult> => ({ response: { status: 200, body: {} } }));
+    const updates: StepExecutionState[] = [];
+    const res = await runWorkflow(selfRef, {}, deps(proxy, { loop: selfRef }), (s) => updates.push(s));
+
+    expect(res.overallStatus).toBe("FAILED");
+    const failed = updates.find((u) => u.status === "FAILED");
+    expect(failed?.error).toMatch(/순환 참조/);
   });
 });

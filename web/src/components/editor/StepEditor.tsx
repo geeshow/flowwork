@@ -1,17 +1,21 @@
 import { useMemo } from "react";
 
+import type { WorkflowSummary } from "../../api/client";
 import { refKey } from "../../engine/catalogLookup";
-import type { CatalogEntry, ValueSource, WorkflowStep } from "../../types";
+import type { CatalogEntry, StepApiBinding, ValueSource, WorkflowStep } from "../../types";
 import { BranchConditionEditor } from "./BranchConditionEditor";
 import { CatalogPicker } from "./CatalogPicker";
 import { InputDefEditor } from "./InputDefEditor";
 import { VariableBindingEditor } from "./VariableBindingEditor";
+import { WorkflowLinkEditor } from "./WorkflowLinkEditor";
 
 interface Props {
   step: WorkflowStep;
   index: number;
   total: number;
   entries: CatalogEntry[];
+  workflows: WorkflowSummary[];
+  selfId: string;
   envKeys: Set<string>;
   inputKeys: string[];
   prevSteps: { id: string; label: string }[];
@@ -22,11 +26,18 @@ interface Props {
 
 const STEP_NAMES = ["조회", "등록", "폐쇄", "수정"];
 
+const EMPTY_API_BINDING: StepApiBinding = {
+  catalogEntry: { department: "", collectionFile: "", itemPath: [], name: "" },
+  variableBindings: {},
+};
+
 export function StepEditor({
   step,
   index,
   total,
   entries,
+  workflows,
+  selfId,
   envKeys,
   inputKeys,
   prevSteps,
@@ -34,9 +45,12 @@ export function StepEditor({
   onRemove,
   onMove,
 }: Props) {
+  const mode: "API" | "WORKFLOW" = step.workflowBinding ? "WORKFLOW" : "API";
+  const apiBinding = step.apiBinding ?? EMPTY_API_BINDING;
+
   const selectedEntry = useMemo(
-    () => entries.find((e) => refKey(e) === refKey(step.apiBinding.catalogEntry)) ?? null,
-    [entries, step.apiBinding.catalogEntry],
+    () => entries.find((e) => refKey(e) === refKey(apiBinding.catalogEntry)) ?? null,
+    [entries, apiBinding.catalogEntry],
   );
 
   // 바인딩이 필요한 변수 = 카탈로그 변수 − 환경변수
@@ -45,16 +59,29 @@ export function StepEditor({
     [selectedEntry, envKeys],
   );
 
+  const setMode = (next: "API" | "WORKFLOW") => {
+    if (next === mode) return;
+    if (next === "WORKFLOW") {
+      onChange({
+        ...step,
+        apiBinding: undefined,
+        workflowBinding: { ref: { group: "", id: "" }, inputMappings: {} },
+      });
+    } else {
+      onChange({ ...step, workflowBinding: undefined, apiBinding: EMPTY_API_BINDING });
+    }
+  };
+
   const onSelectEntry = (entry: CatalogEntry) => {
     const vars = entry.variables.filter((v) => !envKeys.has(v));
     const kept: Record<string, ValueSource> = {};
     for (const v of vars) {
-      if (step.apiBinding.variableBindings[v]) kept[v] = step.apiBinding.variableBindings[v];
+      if (apiBinding.variableBindings[v]) kept[v] = apiBinding.variableBindings[v];
     }
     onChange({
       ...step,
       apiBinding: {
-        ...step.apiBinding,
+        ...apiBinding,
         catalogEntry: {
           department: entry.department,
           collectionFile: entry.collectionFile,
@@ -70,8 +97,8 @@ export function StepEditor({
     onChange({
       ...step,
       apiBinding: {
-        ...step.apiBinding,
-        variableBindings: { ...step.apiBinding.variableBindings, [variable]: source },
+        ...apiBinding,
+        variableBindings: { ...apiBinding.variableBindings, [variable]: source },
       },
     });
 
@@ -111,20 +138,44 @@ export function StepEditor({
       </div>
 
       <div className="step-section">
-        <h4>처리 API</h4>
-        <CatalogPicker entries={entries} selectedId={selectedEntry?.id ?? null} onSelect={onSelectEntry} />
-        {selectedEntry ? (
-          <div className="binding-block">
-            <h5>변수 바인딩</h5>
-            <VariableBindingEditor
-              variables={bindableVars}
-              bindings={step.apiBinding.variableBindings}
-              inputKeys={inputKeys}
-              prevStepIds={prevSteps}
-              onChange={setBinding}
-            />
+        <div className="processing-head">
+          <h4>처리 방식</h4>
+          <div className="mode-toggle">
+            <button className={mode === "API" ? "active" : ""} onClick={() => setMode("API")}>
+              API 호출
+            </button>
+            <button className={mode === "WORKFLOW" ? "active" : ""} onClick={() => setMode("WORKFLOW")}>
+              다른 업무 연결
+            </button>
           </div>
-        ) : null}
+        </div>
+
+        {mode === "API" ? (
+          <>
+            <CatalogPicker entries={entries} selectedId={selectedEntry?.id ?? null} onSelect={onSelectEntry} />
+            {selectedEntry ? (
+              <div className="binding-block">
+                <h5>변수 바인딩</h5>
+                <VariableBindingEditor
+                  variables={bindableVars}
+                  bindings={apiBinding.variableBindings}
+                  inputKeys={inputKeys}
+                  prevStepIds={prevSteps}
+                  onChange={setBinding}
+                />
+              </div>
+            ) : null}
+          </>
+        ) : (
+          <WorkflowLinkEditor
+            binding={step.workflowBinding!}
+            workflows={workflows}
+            selfId={selfId}
+            inputKeys={inputKeys}
+            prevStepIds={prevSteps}
+            onChange={(workflowBinding) => onChange({ ...step, workflowBinding })}
+          />
+        )}
       </div>
 
       <div className="step-section">

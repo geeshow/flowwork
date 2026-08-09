@@ -66,10 +66,20 @@ export function WorkflowRunner({ workflow, onOpenExecution }: Props) {
     setResult(null);
     setStates(new Map());
 
+    const wfCache = new Map<string, Workflow>();
     const deps: RunDeps = {
       getRequestTemplate: makeTemplateResolver(catalog),
       proxy: api.proxy,
       env,
+      // 다른 업무 연결 스텝: 하위 워크플로우 로드 (세션 내 캐시)
+      getWorkflow: async (group, id) => {
+        const key = `${group}/${id}`;
+        const cached = wfCache.get(key);
+        if (cached) return cached;
+        const wf = await api.getWorkflow(group, id);
+        wfCache.set(key, wf);
+        return wf;
+      },
     };
 
     const onStepUpdate = (s: StepExecutionState) =>

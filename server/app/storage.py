@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -14,12 +15,13 @@ import aiofiles
 from .config import EXECUTIONS_DIR, WORKFLOWS_DIR
 from .models import WorkflowFile, WorkflowSummary
 
-# 경로 traversal 방지: group/id는 단순 세그먼트만 허용
-_SAFE_SEGMENT = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
+# 경로 traversal 방지: 단어문자(유니코드 — 한글 포함) + 하이픈만 허용.
+# '/', '\\', '.', 공백 등이 배제되므로 '..' 같은 traversal이 불가능하다.
+_SAFE_SEGMENT = re.compile(r"^[-\w]+$", re.UNICODE)
 
 
 def _safe(segment: str) -> str:
-    if not segment or not set(segment) <= _SAFE_SEGMENT:
+    if not segment or not _SAFE_SEGMENT.match(segment):
         raise ValueError(f"허용되지 않는 이름입니다: {segment!r}")
     return segment
 

@@ -56,10 +56,12 @@
 
 ### 2.2 스텝(세부 기능) 단위
 
-기능 이름은 조회 / 등록 / 폐쇄 / 수정 중 하나로 분류하고, 각 스텝은 아래 두 가지로 구성된다.
+기능 이름은 조회 / 등록 / 폐쇄 / 수정 중 하나로 분류하고, 각 스텝은 아래로 구성된다.
 
 - **입력값 정의** (4종, [3.2](#32-입력값-정의-stepinput) 참고)
-- **처리 API 바인딩** (Postman Collection 항목 + 변수 매핑, [4.4](#44-변수--valuesource-바인딩) 참고)
+- **처리 단계** — 둘 중 하나:
+  - **API 바인딩**(`apiBinding`): Postman Collection 항목 + 변수 매핑 ([4.4](#44-변수--valuesource-바인딩) 참고)
+  - **다른 업무 연결**(`workflowBinding`): 다른 워크플로우를 하위 실행 ([3.5](#35-워크플로우-연결-stepworkflowbinding) 참고)
 
 응답 결과에 따른 추가 API 호출 분기는 스텝에 선택적으로 붙는 `branchCondition`으로 표현한다 ([3.3](#33-분기-조건-branchcondition) 참고).
 
@@ -149,6 +151,23 @@ interface BranchCondition {
   ]
 }
 ```
+
+### 3.5 워크플로우 연결 (StepWorkflowBinding)
+
+처리 단계는 API 호출뿐 아니라 **다른 업무(워크플로우)를 하위 실행**할 수 있다. 부서별로 자주 쓰는 "사용자 조회" 같은 업무를 재사용해 상위 업무를 조립한다.
+
+```typescript
+interface StepWorkflowBinding {
+  ref: { group: string; id: string };
+  // 하위 워크플로우 입력값 key → ValueSource (부모 컨텍스트 기준으로 리졸브)
+  inputMappings: Record<string, ValueSource>;
+}
+```
+
+- 실행 시 부모의 사용자 입력 / 이전 응답을 `inputMappings`로 하위 워크플로우의 입력값으로 리졸브해 넘긴다.
+- 하위 실행 결과는 `{ status, steps: { <하위스텝id>: 응답 body } }` 형태로 부모 컨텍스트에 담겨, 이후 스텝이 `PREV_RESPONSE`(`$.steps.<id>...`)로 참조한다.
+- 각 워크플로우는 자신만의 실행 컨텍스트(로컬 `step.id` 기준)를 가지므로 분기/응답 참조가 경계를 넘지 않는다. 하위 스텝의 이력 `step_id`는 부모 스텝 접두사(`부모/하위`)로 유일화된다.
+- **순환 참조**(A→B→A)는 실행 경로의 워크플로우 id 집합으로 감지해 해당 스텝을 실패 처리한다.
 
 ---
 

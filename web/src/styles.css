@@ -377,6 +377,49 @@ button.link {
   margin-bottom: 8px;
 }
 
+/* group tabs */
+.group-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 12px;
+}
+.group-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--muted);
+  font-weight: 600;
+}
+.group-tab:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+.group-tab.active {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.group-count {
+  font-size: 11px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.15);
+  display: inline-grid;
+  place-items: center;
+}
+.group-tab:not(.active) .group-count {
+  background: var(--panel-2);
+}
+
 /* workflow list rows w/ edit */
 .wf-item {
   display: flex;
@@ -759,4 +802,36 @@ button.link {
   grid-template-columns: 1fr 1fr;
   gap: 8px;
   width: 100%;
+}
+
+/* processing mode toggle (API vs workflow link) */
+.processing-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.mode-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.mode-toggle button {
+  padding: 6px 14px;
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 13px;
+}
+.mode-toggle button.active {
+  background: var(--accent);
+  color: #fff;
+}
+.wf-link > select {
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--text);
 }
