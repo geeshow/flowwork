@@ -525,6 +525,10 @@ button.link {
 .step-id {
   font-size: 12px;
 }
+.step-title {
+  font-weight: 600;
+  flex: 1;
+}
 .step-actions {
   margin-left: auto;
   display: flex;

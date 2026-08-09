@@ -31,7 +31,7 @@ function newStep(): WorkflowStep {
   return {
     id: `step_${Math.random().toString(36).slice(2, 8)}`,
     order: 0,
-    name: "조회",
+    name: "", // API/업무를 선택하면 그 이름으로 자동 설정
     apiBinding: {
       catalogEntry: { department: "", collectionFile: "", itemPath: [], name: "" },
       variableBindings: {},
@@ -279,7 +279,7 @@ export function WorkflowEditor({ mode, id, onSaved, onCancel }: Props) {
               selfId={wf.id}
               envKeys={envKeys}
               inputKeys={inputKeys}
-              prevSteps={wf.steps.slice(0, i).map((s) => ({ id: s.id, label: `${s.name} (${s.id})` }))}
+              prevSteps={wf.steps.slice(0, i).map((s, si) => ({ id: s.id, label: `${si + 1}. ${s.name || "스텝"}` }))}
               onChange={(s) => updateStep(i, s)}
               onRemove={() => setWf({ ...wf, steps: wf.steps.filter((_, idx) => idx !== i) })}
               onMove={(dir) => moveStep(i, dir)}

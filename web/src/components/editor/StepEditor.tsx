@@ -23,8 +23,6 @@ interface Props {
   onMove: (dir: -1 | 1) => void;
 }
 
-const STEP_NAMES = ["조회", "등록", "폐쇄", "수정"];
-
 const EMPTY_API_BINDING: StepApiBinding = {
   catalogEntry: { department: "", collectionFile: "", itemPath: [], name: "" },
   variableBindings: {},
@@ -60,11 +58,12 @@ export function StepEditor({
     if (next === "WORKFLOW") {
       onChange({
         ...step,
+        name: "",
         apiBinding: undefined,
         workflowBinding: { ref: { id: "" }, inputMappings: {} },
       });
     } else {
-      onChange({ ...step, workflowBinding: undefined, apiBinding: EMPTY_API_BINDING });
+      onChange({ ...step, name: "", workflowBinding: undefined, apiBinding: EMPTY_API_BINDING });
     }
   };
 
@@ -77,6 +76,7 @@ export function StepEditor({
     }
     onChange({
       ...step,
+      name: entry.name, // 스텝 이름 = 선택한 API 이름 (자동)
       apiBinding: {
         ...apiBinding,
         catalogEntry: {
@@ -88,6 +88,12 @@ export function StepEditor({
         variableBindings: kept,
       },
     });
+  };
+
+  const onLinkChange = (workflowBinding: WorkflowStep["workflowBinding"]) => {
+    // 스텝 이름 = 연결한 업무 이름 (자동)
+    const linked = workflows.find((w) => w.id === workflowBinding?.ref.id);
+    onChange({ ...step, workflowBinding, name: linked?.name ?? "" });
   };
 
   const setBinding = (variable: string, source: ValueSource) =>
@@ -103,15 +109,7 @@ export function StepEditor({
     <div className="step-editor">
       <div className="step-editor-head">
         <span className="step-order">{index + 1}</span>
-        <select value={step.name} onChange={(e) => onChange({ ...step, name: e.target.value })}>
-          {STEP_NAMES.map((n) => (
-            <option key={n} value={n}>
-              {n}
-            </option>
-          ))}
-          {STEP_NAMES.includes(step.name) ? null : <option value={step.name}>{step.name}</option>}
-        </select>
-        <span className="step-id muted">{step.id}</span>
+        <span className="step-title">{step.name || <span className="muted">새 스텝</span>}</span>
         <div className="step-actions">
           <button className="icon-btn" disabled={index === 0} onClick={() => onMove(-1)} title="위로">
             ↑
@@ -163,7 +161,7 @@ export function StepEditor({
             inputKeys={inputKeys}
             envKeys={[...envKeys]}
             prevStepIds={prevSteps}
-            onChange={(workflowBinding) => onChange({ ...step, workflowBinding })}
+            onChange={onLinkChange}
           />
         )}
       </div>

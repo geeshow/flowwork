@@ -33,7 +33,7 @@ export function StepCard({ step, state }: Props) {
         aria-expanded={open}
       >
         <span className="step-order">{step.order}</span>
-        <span className="step-name">{step.name}</span>
+        <span className="step-name">{step.name || `스텝 ${step.order}`}</span>
         <span className={`step-status ${meta.cls}`}>
           <span className="step-icon">{meta.icon}</span> {meta.label}
         </span>
