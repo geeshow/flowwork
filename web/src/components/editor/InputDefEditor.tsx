@@ -21,6 +21,8 @@ function blankInput(kind: InputKind, key: string, label: string): StepInputDef {
       return { kind, key, label, sourceApiId: "", labelField: "", valueField: "" };
     case "DEPENDENT_LOOKUP":
       return { kind, key, label, dependsOnKey: "", lookupApiId: "", displayFields: [], valueField: "" };
+    case "DEPENDENT_COMBO":
+      return { kind, key, label, dependsOnKey: "", lookupApiId: "", labelField: "", valueField: "" };
   }
 }
 
@@ -54,6 +56,7 @@ export function InputDefEditor({ inputs, entries, inputKeys, envKeys, onChange }
               <option value="FIXED_COMBO">고정값 콤보</option>
               <option value="API_COMBO">API 콤보</option>
               <option value="DEPENDENT_LOOKUP">의존 조회</option>
+              <option value="DEPENDENT_COMBO">의존 콤보</option>
             </select>
             <button className="icon-btn" title="삭제" onClick={() => onChange(inputs.filter((_, idx) => idx !== i))}>
               ✕
@@ -263,6 +266,92 @@ function KindFields({
                 onChange={(e) => onPatch({ displayFields: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
               />
             )}
+          </div>
+        </div>
+      );
+    }
+
+    case "DEPENDENT_COMBO": {
+      const lookupEntry = entries.find((e) => e.id === input.lookupApiId) ?? null;
+      const outs = lookupEntry?.outputFields ?? [];
+      return (
+        <div className="def-sub def-col">
+          <div className="def-field">
+            <span className="def-field-label">목록 API</span>
+            <CatalogPicker
+              entries={entries}
+              selectedId={input.lookupApiId || null}
+              onSelect={(e) => onPatch({ lookupApiId: e.id })}
+            />
+          </div>
+
+          <div className="def-field">
+            <span className="def-field-label">의존 입력 key</span>
+            {depKeyOptions.length + envKeys.length > 0 ? (
+              <select value={input.dependsOnKey} onChange={(e) => onPatch({ dependsOnKey: e.target.value })}>
+                <option value="" disabled>
+                  선택…
+                </option>
+                {depKeyOptions.length ? (
+                  <optgroup label="기본 입력값 · 이전 조회 결과">
+                    {depKeyOptions.map((k) => (
+                      <option key={k} value={k}>
+                        {k}
+                      </option>
+                    ))}
+                  </optgroup>
+                ) : null}
+                {envKeys.length ? (
+                  <optgroup label="환경변수">
+                    {envKeys.map((k) => (
+                      <option key={k} value={k}>
+                        {k}
+                      </option>
+                    ))}
+                  </optgroup>
+                ) : null}
+              </select>
+            ) : (
+              <input placeholder="dependsOnKey" value={input.dependsOnKey} onChange={(e) => onPatch({ dependsOnKey: e.target.value })} />
+            )}
+          </div>
+
+          <div className="grid2">
+            <div className="def-field">
+              <span className="def-field-label">표현값 (labelField)</span>
+              {outs.length ? (
+                <select value={input.labelField} onChange={(e) => onPatch({ labelField: e.target.value })}>
+                  <option value="" disabled>
+                    선택…
+                  </option>
+                  {outs.map((f) => (
+                    <option key={f} value={f}>
+                      {f}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input placeholder="labelField (목록 API 선택 시 목록)" value={input.labelField} onChange={(e) => onPatch({ labelField: e.target.value })} />
+              )}
+            </div>
+
+            <div className="def-field">
+              <span className="def-field-label">실제값 (valueField)</span>
+              {outs.length ? (
+                <select value={input.valueField} onChange={(e) => onPatch({ valueField: e.target.value })}>
+                  <option value="" disabled>
+                    선택…
+                  </option>
+                  {outs.map((f) => (
+                    <option key={f} value={f}>
+                      {f}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input placeholder="valueField (목록 API 선택 시 목록)" value={input.valueField} onChange={(e) => onPatch({ valueField: e.target.value })} />
+              )}
+            </div>
           </div>
         </div>
       );

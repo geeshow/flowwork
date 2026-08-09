@@ -10,6 +10,14 @@ interface ApiComboApi {
   getOptions: (sourceApiId: string, labelField: string, valueField: string) => Promise<ComboOption[]>;
   /** DEPENDENT_LOOKUP: 의존값으로 조회해 단일 결과 객체(부가정보) 반환. */
   lookup: (lookupApiId: string, dependsOnKey: string, dependValue: Primitive) => Promise<Record<string, unknown> | null>;
+  /** DEPENDENT_COMBO: 의존값으로 목록 API를 호출해 {label,value} 옵션 목록 반환. */
+  lookupList: (
+    lookupApiId: string,
+    dependsOnKey: string,
+    dependValue: Primitive,
+    labelField: string,
+    valueField: string,
+  ) => Promise<ComboOption[]>;
 }
 
 const Ctx = createContext<ApiComboApi | null>(null);
@@ -84,7 +92,36 @@ export function ApiComboProvider({
     [entryById, env],
   );
 
-  const value = useMemo(() => ({ getOptions, lookup }), [getOptions, lookup]);
+  const lookupList = useCallback(
+    async (
+      lookupApiId: string,
+      dependsOnKey: string,
+      dependValue: Primitive,
+      labelField: string,
+      valueField: string,
+    ) => {
+      const entry = entryById.get(lookupApiId);
+      if (!entry) throw new Error(`조회 API를 찾을 수 없습니다: ${lookupApiId}`);
+      const key = `list|${lookupApiId}|${dependsOnKey}|${dependValue}|${labelField}|${valueField}`;
+      return cacheRef.current.get(key, async () => {
+        // 의존값을 {{dependsOnKey}} 변수에 채우고, 나머지 비-환경 변수는 빈 값으로.
+        const bindings: StepApiBinding["variableBindings"] = {};
+        for (const v of entry.variables) {
+          if (v === dependsOnKey) bindings[v] = { kind: "FIXED", value: dependValue };
+          else if (!(v in env)) bindings[v] = { kind: "FIXED", value: "" };
+        }
+        const request = resolveTemplate(entry.requestTemplate, refBinding(entry, bindings), baseCtx(env));
+        const res = await api.invoke(request);
+        return extractRows(res.response.body).map((row) => ({
+          label: String(row[labelField] ?? ""),
+          value: String(row[valueField] ?? ""),
+        }));
+      });
+    },
+    [entryById, env],
+  );
+
+  const value = useMemo(() => ({ getOptions, lookup, lookupList }), [getOptions, lookup, lookupList]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

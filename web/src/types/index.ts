@@ -32,6 +32,17 @@ export type StepInputDef =
       // 조회 결과 객체에서 이 필드를 입력값으로 확정한다.
       // 없으면 의존값(dependsOnKey 값)을 그대로 사용(하위호환).
       valueField?: string;
+    }
+  | {
+      // 의존 콤보 — 의존값(환경변수/기본입력/이전 조회 결과)으로 목록 API를 호출해
+      // 그 결과(배열)를 콤보로 선택한다. labelField=표현값, valueField=실제값.
+      kind: "DEPENDENT_COMBO";
+      key: string;
+      label: string;
+      dependsOnKey: string;
+      lookupApiId: string;
+      labelField: string;
+      valueField: string;
     };
 
 // ---------------------------------------------------------------------------

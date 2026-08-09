@@ -40,6 +40,19 @@
               ]
             }
           }
+        },
+        {
+          "name": "사용자 정보 조회 (앱ID)",
+          "_output": ["app_user_id", "sec_user_id", "CIF", "name", "phone", "email"],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{coreBaseUrl}}/users/{{app_user_id}}",
+              "host": ["{{coreBaseUrl}}"],
+              "path": ["users", "{{app_user_id}}"]
+            }
+          }
         }
       ]
     },
@@ -70,6 +83,26 @@
               "host": ["{{coreBaseUrl}}"],
               "path": ["accounts"],
               "query": [{ "key": "sec_user_id", "value": "{{sec_user_id}}" }]
+            }
+          }
+        },
+        {
+          "name": "계좌 폐쇄",
+          "_output": ["accountNo", "status", "closedAt", "reason"],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{coreBaseUrl}}/accounts/{{accountNo}}/close",
+              "host": ["{{coreBaseUrl}}"],
+              "path": ["accounts", "{{accountNo}}", "close"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"reason\": \"{{reason}}\"}"
             }
           }
         }

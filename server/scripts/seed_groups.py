@@ -55,47 +55,66 @@ USER_LOOKUP = {
     ],
 }
 
-ACCOUNT_CLOSE = {
-    "id": "account_close",
-    "domain": "계좌",
-    "task": "폐쇄",
-    "name": "계좌 폐쇄",
-    "description": "'사용자 조회' 업무를 연결해 고객을 확인한 뒤 정산을 조회한다.",
-    "baseInputs": [
-        {"kind": "MANUAL", "key": "customerId", "label": "고객 ID", "valueType": "string"}
-    ],
-    "steps": [
-        {
-            "id": "verify_user",
-            "order": 1,
-            "name": "조회",
-            "workflowBinding": {
-                "ref": {"id": "user_lookup"},
-                "inputMappings": {"customerId": {"kind": "USER_INPUT", "inputKey": "customerId"}},
+def _account_close() -> dict:
+    """계좌 폐쇄: app_user_id → (사용자조회로 sec_user_id 확정) → 계좌목록 콤보로
+    계좌번호 선택 → 그 계좌를 폐쇄한다.
+
+    - app_user_id      : 직접 입력(MANUAL)
+    - sec_user_id      : 의존 조회(DEPENDENT_LOOKUP) — app_user_id로 사용자 조회
+    - accountNo        : 의존 콤보(DEPENDENT_COMBO) — sec_user_id의 계좌목록에서 선택
+    """
+    return {
+        "id": "account_close",
+        "domain": "계좌",
+        "task": "폐쇄",
+        "name": "계좌 폐쇄",
+        "description": "app_user_id로 사용자를 조회해 sec_user_id를 확정하고, 그 계좌 목록에서 폐쇄할 계좌를 골라 폐쇄한다.",
+        "baseInputs": [
+            {"kind": "MANUAL", "key": "app_user_id", "label": "앱 사용자 ID", "valueType": "string"},
+            {
+                "kind": "DEPENDENT_LOOKUP",
+                "key": "sec_user_id",
+                "label": "보안 사용자 ID",
+                "dependsOnKey": "app_user_id",
+                "lookupApiId": _catalog_id("사용자 정보 조회 (앱ID)"),
+                "displayFields": ["name", "sec_user_id"],
+                "valueField": "sec_user_id",
             },
-        },
-        {
-            "id": "check_settlement",
-            "order": 2,
-            "name": "폐쇄",
-            "apiBinding": {
-                "catalogEntry": {
-                    "department": "payments",
-                    "collectionFile": "settlement.postman_collection.json",
-                    "itemPath": ["정산"],
-                    "name": "정산 조회",
-                },
-                "variableBindings": {
-                    "customerId": {
-                        "kind": "PREV_RESPONSE",
-                        "stepId": "verify_user",
-                        "jsonPath": "$.steps.lookup.data.id",
-                    }
-                },
+            {
+                "kind": "DEPENDENT_COMBO",
+                "key": "accountNo",
+                "label": "폐쇄할 계좌",
+                "dependsOnKey": "sec_user_id",
+                "lookupApiId": _catalog_id("계좌 목록 조회 (보안ID)"),
+                "labelField": "accountType",
+                "valueField": "accountNo",
             },
-        },
-    ],
-}
+        ],
+        "steps": [
+            {
+                "id": "close_account",
+                "order": 1,
+                "name": "계좌 폐쇄",
+                "apiBinding": {
+                    "catalogEntry": {
+                        "department": "core",
+                        "collectionFile": "core.postman_collection.json",
+                        "itemPath": ["계좌"],
+                        "name": "계좌 폐쇄",
+                    },
+                    "variableBindings": {
+                        "accountNo": {"kind": "USER_INPUT", "inputKey": "accountNo"},
+                        "reason": {"kind": "FIXED", "value": "고객 요청"},
+                    },
+                },
+                "stopOnFailure": True,
+                "resultView": {
+                    "mode": "TABLE",
+                    "columns": ["accountNo", "status", "closedAt", "reason"],
+                },
+            }
+        ],
+    }
 
 
 def _account_list() -> dict:
@@ -215,7 +234,7 @@ def _write(wf: dict) -> None:
 
 
 def main() -> None:
-    for wf in [USER_LOOKUP, ACCOUNT_CLOSE, _account_list(), _account_detail(), *PLACEHOLDERS]:
+    for wf in [USER_LOOKUP, _account_close(), _account_list(), _account_detail(), *PLACEHOLDERS]:
         _write(wf)
 
 

@@ -86,6 +86,9 @@ function InputControl({
 
     case "DEPENDENT_LOOKUP":
       return <DependentLookupInput def={def} value={values[def.key]} values={values} env={env} onChange={onChange} />;
+
+    case "DEPENDENT_COMBO":
+      return <DependentComboInput def={def} value={values[def.key]} values={values} env={env} onChange={onChange} />;
   }
 }
 
@@ -220,5 +223,84 @@ function DependentLookupInput({
         </div>
       ) : null}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// DEPENDENT_COMBO — 의존값(환경변수/기본입력/이전 조회 결과)으로 목록을 조회해
+// 콤보로 선택한다. labelField=표현값, valueField=실제값.
+// ---------------------------------------------------------------------------
+function DependentComboInput({
+  def,
+  value,
+  values,
+  env,
+  onChange,
+}: {
+  def: Extract<StepInputDef, { kind: "DEPENDENT_COMBO" }>;
+  value: Primitive | undefined;
+  values: Record<string, Primitive>;
+  env?: EnvironmentValues;
+  onChange: (key: string, value: Primitive) => void;
+}) {
+  const { lookupList } = useApiCombo();
+  const dependValue = values[def.dependsOnKey] ?? env?.[def.dependsOnKey] ?? null;
+  const [options, setOptions] = useState<{ label: string; value: string }[] | null>(null);
+  const [status, setStatus] = useState<"idle" | "loading" | "ok" | "fail">("idle");
+
+  useEffect(() => {
+    if (dependValue == null || dependValue === "") {
+      setOptions(null);
+      setStatus("idle");
+      if (value != null) onChange(def.key, null);
+      return;
+    }
+    let alive = true;
+    setStatus("loading");
+    setOptions(null);
+    const t = setTimeout(() => {
+      lookupList(def.lookupApiId, def.dependsOnKey, dependValue, def.labelField, def.valueField)
+        .then((opts) => {
+          if (!alive) return;
+          setOptions(opts);
+          setStatus(opts.length ? "ok" : "fail");
+          // 선택값이 새 옵션에 없으면 초기화
+          if (value != null && !opts.some((o) => o.value === String(value))) onChange(def.key, null);
+        })
+        .catch(() => {
+          if (!alive) return;
+          setStatus("fail");
+          setOptions([]);
+          onChange(def.key, null);
+        });
+    }, 400); // debounce
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+    // 의존값 변경 시에만 재조회
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dependValue, def.lookupApiId, def.dependsOnKey, def.labelField, def.valueField, def.key]);
+
+  if (dependValue == null || dependValue === "")
+    return (
+      <span className="hint">
+        <code>{def.dependsOnKey}</code> 입력 후 목록이 채워집니다.
+      </span>
+    );
+  if (status === "loading") return <span className="hint">목록 조회 중…</span>;
+  if (status === "fail") return <span className="hint error-text">조회 결과 없음</span>;
+
+  return (
+    <select value={value == null ? "" : String(value)} onChange={(e) => onChange(def.key, e.target.value)}>
+      <option value="" disabled>
+        선택…
+      </option>
+      {(options ?? []).map((o) => (
+        <option key={o.value} value={o.value}>
+          {o.label !== o.value ? `${o.label} (${o.value})` : o.label}
+        </option>
+      ))}
+    </select>
   );
 }

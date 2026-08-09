@@ -146,6 +146,23 @@ async def list_accounts_by_sec(sec_user_id: str | None = None):
     return {"data": _SEC_ACCOUNTS.get(sec_user_id, [])}
 
 
+class CloseBody(BaseModel):
+    reason: str | None = None
+
+
+@app.post("/core/accounts/{account_no}/close")
+async def close_account(account_no: str, body: CloseBody):
+    """계좌 폐쇄 — 계좌번호로 상태를 CLOSED로 바꾼다 (데모)."""
+    return {
+        "data": {
+            "accountNo": account_no,
+            "status": "CLOSED",
+            "closedAt": "2026-08-09",
+            "reason": body.reason,
+        }
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
 
