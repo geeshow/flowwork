@@ -8,6 +8,7 @@ import { StepEditor } from "./StepEditor";
 interface Props {
   mode: "new" | "edit";
   id?: string;
+  initialDomain?: string; // 새 워크플로우 시 기본 도메인 (현재 보던 도메인 탭)
   onSaved: (id: string) => void;
   onCancel: () => void;
 }
@@ -15,10 +16,10 @@ interface Props {
 // 도메인/업무는 파일 경로 세그먼트이므로 단어문자 + 한글 + 하이픈만 허용
 const SAFE_SEGMENT = /^[\w가-힣-]+$/;
 
-function emptyWorkflow(): Workflow {
+function emptyWorkflow(domain = ""): Workflow {
   return {
     id: crypto.randomUUID(),
-    domain: "",
+    domain,
     task: "",
     name: "",
     description: "",
@@ -39,8 +40,8 @@ function newStep(): WorkflowStep {
   };
 }
 
-export function WorkflowEditor({ mode, id, onSaved, onCancel }: Props) {
-  const [wf, setWf] = useState<Workflow | null>(mode === "new" ? emptyWorkflow() : null);
+export function WorkflowEditor({ mode, id, initialDomain, onSaved, onCancel }: Props) {
+  const [wf, setWf] = useState<Workflow | null>(mode === "new" ? emptyWorkflow(initialDomain) : null);
   const [entries, setEntries] = useState<CatalogEntry[]>([]);
   const [env, setEnv] = useState<EnvironmentValues>({});
   const [workflows, setWorkflows] = useState<WorkflowSummary[]>([]);

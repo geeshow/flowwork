@@ -9,7 +9,7 @@ import type { Workflow } from "./types";
 type Route =
   | { view: "workflows" }
   | { view: "run"; id: string }
-  | { view: "new" }
+  | { view: "new"; domain?: string }
   | { view: "edit"; id: string }
   | { view: "history" }
   | { view: "execution"; executionId: string };
@@ -19,7 +19,7 @@ function parseHash(): Route {
   const [head, a] = hash.split("/");
   if (head === "executions" && a) return { view: "execution", executionId: a };
   if (head === "run" && a) return { view: "run", id: a };
-  if (head === "new") return { view: "new" };
+  if (head === "new") return { view: "new", domain: a ? decodeURIComponent(a) : undefined };
   if (head === "edit" && a) return { view: "edit", id: a };
   if (head === "history") return { view: "history" };
   return { view: "workflows" };
@@ -62,7 +62,7 @@ export default function App() {
           <WorkflowsPage
             onRun={(i) => go(`#/run/${i}`)}
             onEdit={(i) => go(`#/edit/${i}`)}
-            onNew={() => go("#/new")}
+            onNew={(domain) => go(domain ? `#/new/${encodeURIComponent(domain)}` : "#/new")}
           />
         ) : null}
         {route.view === "run" ? (
@@ -73,7 +73,12 @@ export default function App() {
           />
         ) : null}
         {route.view === "new" ? (
-          <WorkflowEditor mode="new" onSaved={(i) => go(`#/run/${i}`)} onCancel={() => go("#/")} />
+          <WorkflowEditor
+            mode="new"
+            initialDomain={route.domain}
+            onSaved={(i) => go(`#/run/${i}`)}
+            onCancel={() => go("#/")}
+          />
         ) : null}
         {route.view === "edit" ? (
           <WorkflowEditor
@@ -119,7 +124,7 @@ function WorkflowsPage({
 }: {
   onRun: (id: string) => void;
   onEdit: (id: string) => void;
-  onNew: () => void;
+  onNew: (domain?: string) => void;
 }) {
   const [rows, setRows] = useState<WorkflowSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -173,7 +178,7 @@ function WorkflowsPage({
     <section>
       <div className="panel-head">
         <h2>워크플로우</h2>
-        <button className="primary" onClick={onNew}>
+        <button className="primary" onClick={() => onNew(activeDomain ?? undefined)}>
           + 새 워크플로우
         </button>
       </div>
