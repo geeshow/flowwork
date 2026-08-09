@@ -171,10 +171,14 @@ def _account_detail() -> dict:
                         "sec_user_id": {"kind": "USER_INPUT", "inputKey": "sec_user_id"}
                     },
                 },
-                # 중첩 필드는 점 표기 컬럼으로 지정
+                # 중첩 필드는 점 표기 컬럼으로, 통째 객체 컬럼(owner/balance)은 압축 JSON으로
                 "resultView": {
                     "mode": "TABLE",
-                    "columns": ["accountNo", "accountType", "owner.name", "owner.cif", "balance.amount", "balance.currency", "status"],
+                    "columns": [
+                        "accountNo", "accountType",
+                        "owner.name", "owner.cif", "balance.amount", "balance.currency",
+                        "status", "owner", "balance",
+                    ],
                 },
             }
         ],
