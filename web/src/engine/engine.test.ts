@@ -317,6 +317,81 @@ describe("runWorkflow", () => {
     expect(proxy.mock.calls[1][0].request.url).toContain("A1");
   });
 
+  it("중간 입력: 여러 스텝에서 순차로 받아 각각 다음 스텝에 반영", async () => {
+    const bind = (vb: StepApiBinding["variableBindings"] = {}): StepApiBinding => ({
+      catalogEntry: { department: "core", collectionFile: "c", itemPath: ["x"], name: "n" },
+      variableBindings: vb,
+    });
+    const wf: Workflow = {
+      id: "wf_seq",
+      domain: "d",
+      task: "t",
+      name: "seq",
+      baseInputs: [],
+      steps: [
+        {
+          id: "step_1",
+          order: 1,
+          name: "목록1",
+          apiBinding: bind(),
+          midInputs: [{ kind: "STEP_RESULT_COMBO", key: "pick1", label: "1", labelField: "name", valueField: "id" }],
+        },
+        {
+          id: "step_2",
+          order: 2,
+          name: "목록2",
+          apiBinding: bind({ pick1: { kind: "USER_INPUT", inputKey: "pick1" } }),
+          midInputs: [{ kind: "STEP_RESULT_COMBO", key: "pick2", label: "2", labelField: "name", valueField: "id" }],
+        },
+        {
+          id: "step_3",
+          order: 3,
+          name: "처리",
+          apiBinding: bind({ pick2: { kind: "USER_INPUT", inputKey: "pick2" } }),
+          stopOnFailure: true,
+        },
+      ],
+    };
+    const proxy = vi.fn(async (_p: Parameters<RunDeps["proxy"]>[0]): Promise<ProxyResult> => ({
+      response: { status: 200, body: { data: [{ id: "X", name: "n" }] } },
+    }));
+    const template = (s: WorkflowStep): PostmanRequest => ({
+      method: "GET",
+      url: {
+        raw:
+          s.id === "step_1"
+            ? "http://localhost:9100/a"
+            : s.id === "step_2"
+              ? "http://localhost:9100/b/{{pick1}}"
+              : "http://localhost:9100/c/{{pick2}}",
+      },
+    });
+    // 순차 호출: 첫 번째는 pick1=A1, 두 번째는 pick2=B2
+    const seen: string[] = [];
+    const collectMidInputs = vi.fn(
+      async (a: Parameters<NonNullable<RunDeps["collectMidInputs"]>>[0]) => {
+        seen.push(a.step.id);
+        return a.step.id === "step_1" ? { pick1: "A1" } : { pick2: "B2" };
+      },
+    );
+    const deps: RunDeps = {
+      getRequestTemplate: template,
+      proxy,
+      env: {},
+      collectMidInputs,
+      newExecutionId: () => "e1",
+    };
+
+    const res = await runWorkflow(wf, {}, deps, () => {});
+
+    expect(res.overallStatus).toBe("SUCCESS");
+    // 두 번, step_1 → step_2 순서로 중간 입력을 받았다
+    expect(seen).toEqual(["step_1", "step_2"]);
+    // step_2 요청엔 첫 중간입력(A1), step_3 요청엔 둘째 중간입력(B2)이 반영
+    expect(proxy.mock.calls[1][0].request.url).toContain("A1");
+    expect(proxy.mock.calls[2][0].request.url).toContain("B2");
+  });
+
   it("중간 입력: 스텝이 실패하면 collectMidInputs를 호출하지 않는다", async () => {
     const bind = (vb: StepApiBinding["variableBindings"] = {}): StepApiBinding => ({
       catalogEntry: { department: "core", collectionFile: "c", itemPath: ["x"], name: "n" },
