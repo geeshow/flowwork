@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import type { WorkflowSummary } from "../../api/client";
 import { refKey } from "../../engine/catalogLookup";
 import type { CatalogEntry, StepApiBinding, StepResultView, ValueSource, WorkflowStep } from "../../types";
+import { stepTypeMeta } from "../StepCard";
 import { BranchConditionEditor } from "./BranchConditionEditor";
 import { CatalogPicker } from "./CatalogPicker";
 import { MidInputEditor } from "./MidInputEditor";
@@ -45,6 +46,12 @@ export function StepEditor({
 }: Props) {
   const mode: "API" | "WORKFLOW" = step.workflowBinding ? "WORKFLOW" : "API";
   const apiBinding = step.apiBinding ?? EMPTY_API_BINDING;
+
+  // 스텝 종류 배지/분류 (실행 화면과 동일) — 편집 중 선택에 따라 실시간 갱신
+  const { typeLabel, category } = stepTypeMeta(step, (id) => {
+    const w = workflows.find((x) => x.id === id);
+    return w ? { domain: w.domain, task: w.task, name: w.name } : undefined;
+  });
 
   const selectedEntry = useMemo(
     () => entries.find((e) => refKey(e) === refKey(apiBinding.catalogEntry)) ?? null,
@@ -124,7 +131,13 @@ export function StepEditor({
       <div className="step-editor-head">
         <span className="step-order">{index + 1}</span>
         <span className="step-title">
-          {step.name || <span className="muted">새 스텝</span>}
+          <span className="step-name-text">
+            <span className="step-name-row">
+              <span className={`step-type-badge ${typeLabel === "API" ? "api" : "wf"}`}>{typeLabel}</span>
+              <span>{step.name || <span className="muted">새 스텝</span>}</span>
+            </span>
+            {category ? <span className="step-category">{category}</span> : null}
+          </span>
         </span>
         <div className="step-actions">
           <button className="icon-btn" disabled={index === 0} onClick={() => onMove(-1)} title="위로">
