@@ -230,12 +230,12 @@ export function WorkflowRunner({ workflow, onOpenExecution }: Props) {
             </button>
           </div>
           <div className="share-row">
-            <code>{`${location.origin}${location.pathname}#/executions/${result.executionId}`}</code>
+            <code>{`${location.origin}/executions/${result.executionId}`}</code>
             <button
               className="link"
               onClick={() =>
                 navigator.clipboard?.writeText(
-                  `${location.origin}${location.pathname}#/executions/${result.executionId}`,
+                  `${location.origin}/executions/${result.executionId}`,
                 )
               }
             >

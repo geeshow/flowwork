@@ -96,7 +96,7 @@ export function ExecutionDetail({ executionId }: { executionId: string }) {
   const status = overallStatus(stepEntries);
   const startedAt = stepEntries[0]?.timestamp;
   const color = wf ? colorForDomain(wf.domain.normalize("NFC"), colors) : "var(--muted)";
-  const shareUrl = `${location.origin}${location.pathname}#/executions/${executionId}`;
+  const shareUrl = `${location.origin}/executions/${executionId}`;
 
   return (
     <div>

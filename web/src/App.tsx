@@ -23,9 +23,9 @@ type Route =
   | { view: "history"; domain?: string; task?: string }
   | { view: "execution"; executionId: string };
 
-function parseHash(): Route {
-  const hash = location.hash.replace(/^#\/?/, "");
-  const parts = hash.split("/");
+// 경로(pathname) → Route. 해시 없는 깔끔한 URL(/executions/{id} 등)을 파싱한다.
+function parseLocation(): Route {
+  const parts = location.pathname.split("/").filter(Boolean);
   const [head, a, b] = parts;
   const dec = (s?: string) => (s ? decodeURIComponent(s) : undefined);
   if (head === "executions" && a) return { view: "execution", executionId: a };
@@ -40,28 +40,33 @@ function parseHash(): Route {
   return { view: "workflows" };
 }
 
-const newHash = (domain?: string, task?: string) => {
-  if (domain && task) return `#/new/${encodeURIComponent(domain)}/${encodeURIComponent(task)}`;
-  if (domain) return `#/new/${encodeURIComponent(domain)}`;
-  return "#/new";
+// History API 네비게이션. pushState 후 popstate를 발생시켜 App이 경로를 다시 파싱한다.
+// (정적 호스팅 배포 시에는 SPA fallback 설정 필요 — 모든 경로에서 index.html 서빙.)
+function navigate(path: string) {
+  window.history.pushState({}, "", path);
+  window.dispatchEvent(new PopStateEvent("popstate"));
+}
+
+const newPath = (domain?: string, task?: string) => {
+  if (domain && task) return `/new/${encodeURIComponent(domain)}/${encodeURIComponent(task)}`;
+  if (domain) return `/new/${encodeURIComponent(domain)}`;
+  return "/new";
 };
-const taskHash = (domain: string, task: string) =>
-  `#/t/${encodeURIComponent(domain)}/${encodeURIComponent(task)}`;
-const historyTaskHash = (domain: string, task: string) =>
-  `#/history/t/${encodeURIComponent(domain)}/${encodeURIComponent(task)}`;
+const taskPath = (domain: string, task: string) =>
+  `/t/${encodeURIComponent(domain)}/${encodeURIComponent(task)}`;
+const historyTaskPath = (domain: string, task: string) =>
+  `/history/t/${encodeURIComponent(domain)}/${encodeURIComponent(task)}`;
 
 export default function App() {
-  const [route, setRoute] = useState<Route>(parseHash());
+  const [route, setRoute] = useState<Route>(parseLocation());
 
   useEffect(() => {
-    const onHash = () => setRoute(parseHash());
-    window.addEventListener("hashchange", onHash);
-    return () => window.removeEventListener("hashchange", onHash);
+    const onPop = () => setRoute(parseLocation());
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
   }, []);
 
-  const go = (hash: string) => {
-    location.hash = hash;
-  };
+  const go = navigate;
 
   const inWorkflows = route.view === "workflows" || route.view === "run" || route.view === "task";
   const navHistoryActive = route.view === "history" || route.view === "execution";
@@ -69,14 +74,14 @@ export default function App() {
   return (
     <div className="app">
       <nav className="topbar">
-        <button className="brand" onClick={() => go("#/")}>
+        <button className="brand" onClick={() => go("/")}>
           flowwork
         </button>
         <div className="nav-links">
-          <button className={inWorkflows ? "active" : ""} onClick={() => go("#/")}>
+          <button className={inWorkflows ? "active" : ""} onClick={() => go("/")}>
             워크플로우
           </button>
-          <button className={navHistoryActive ? "active" : ""} onClick={() => go("#/history")}>
+          <button className={navHistoryActive ? "active" : ""} onClick={() => go("/history")}>
             워크플로우 이력
           </button>
         </div>
@@ -89,21 +94,21 @@ export default function App() {
             showNew
             activeId={route.view === "run" ? route.id : undefined}
             activeTask={route.view === "task" ? { domain: route.domain, task: route.task } : undefined}
-            onOpenTask={(d, t) => go(taskHash(d, t))}
-            onNew={(domain, task) => go(newHash(domain, task))}
+            onOpenTask={(d, t) => go(taskPath(d, t))}
+            onNew={(domain, task) => go(newPath(domain, task))}
           >
             {route.view === "run" ? (
               <RunDetail
                 id={route.id}
-                onOpenExecution={(id) => go(`#/executions/${id}`)}
-                onEdit={(i) => go(`#/edit/${i}`)}
+                onOpenExecution={(id) => go(`/executions/${id}`)}
+                onEdit={(i) => go(`/edit/${i}`)}
               />
             ) : route.view === "task" ? (
               <TaskDetail
                 domain={route.domain}
                 task={route.task}
-                onRun={(i) => go(`#/run/${i}`)}
-                onNew={() => go(newHash(route.domain, route.task))}
+                onRun={(i) => go(`/run/${i}`)}
+                onNew={() => go(newPath(route.domain, route.task))}
               />
             ) : (
               <div className="detail-empty">
@@ -119,23 +124,23 @@ export default function App() {
             mode="new"
             initialDomain={route.domain}
             initialTask={route.task}
-            onSaved={(i) => go(`#/run/${i}`)}
-            onCancel={() => go("#/")}
+            onSaved={(i) => go(`/run/${i}`)}
+            onCancel={() => go("/")}
           />
         ) : null}
         {route.view === "edit" ? (
           <WorkflowEditor
             mode="edit"
             id={route.id}
-            onSaved={(i) => go(`#/run/${i}`)}
-            onCancel={() => go(`#/run/${route.id}`)}
+            onSaved={(i) => go(`/run/${i}`)}
+            onCancel={() => go(`/run/${route.id}`)}
           />
         ) : null}
         {route.view === "history" ? (
           <WorkflowLayout
             title="워크플로우 이력"
             activeTask={route.domain && route.task ? { domain: route.domain, task: route.task } : undefined}
-            onOpenTask={(d, t) => go(historyTaskHash(d, t))}
+            onOpenTask={(d, t) => go(historyTaskPath(d, t))}
             onNew={() => {}}
           >
             <section>
@@ -154,7 +159,7 @@ export default function App() {
               </div>
               <HistoryMain
                 activeTask={route.domain && route.task ? { domain: route.domain, task: route.task } : undefined}
-                onOpen={(id) => go(`#/executions/${id}`)}
+                onOpen={(id) => go(`/executions/${id}`)}
               />
             </section>
           </WorkflowLayout>
@@ -162,11 +167,11 @@ export default function App() {
         {route.view === "execution" ? (
           <WorkflowLayout
             title="워크플로우 이력"
-            onOpenTask={(d, t) => go(historyTaskHash(d, t))}
+            onOpenTask={(d, t) => go(historyTaskPath(d, t))}
             onNew={() => {}}
           >
             <section className="execution-page">
-              <button className="link" onClick={() => go("#/history")}>
+              <button className="link" onClick={() => go("/history")}>
                 ← 워크플로우 이력
               </button>
               <ExecutionDetail executionId={route.executionId} />
@@ -521,7 +526,7 @@ function RunDetail({
   return (
     <>
       <div className="run-topbar">
-        <button className="link" onClick={() => (location.hash = taskHash(wf.domain, wf.task))}>
+        <button className="link" onClick={() => navigate(taskPath(wf.domain, wf.task))}>
           ← {wf.domain} / {wf.task}
         </button>
         <div className="run-actions">
