@@ -62,6 +62,16 @@ export const api = {
   getEnvironments: () =>
     req<{ values: EnvironmentValues }>("/api/catalog/environments").then((r) => r.values),
 
+  // 도메인 → 팔레트 색상 id 매핑
+  getDomainColors: () =>
+    req<{ colors: Record<string, string> }>("/api/domains").then((r) => r.colors),
+
+  setDomainColor: (domain: string, color: string) =>
+    req<{ status: string }>(`/api/domains/${encodeURIComponent(domain)}`, {
+      method: "PUT",
+      body: JSON.stringify({ color }),
+    }),
+
   listExecutions: () =>
     req<{ executions: ExecutionSummary[] }>("/api/executions").then((r) => r.executions),
 

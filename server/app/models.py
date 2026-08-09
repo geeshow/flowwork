@@ -64,6 +64,10 @@ class WorkflowSummary(BaseModel):
     description: str | None = None
 
 
+class DomainColor(BaseModel):
+    color: str  # 팔레트 id (storage.ALLOWED_PALETTE_IDS로 검증)
+
+
 # ---------------------------------------------------------------------------
 # 카탈로그
 # ---------------------------------------------------------------------------

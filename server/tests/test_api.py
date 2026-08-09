@@ -93,6 +93,24 @@ def test_workflow_rejects_unsafe_segment(client):
     assert resp.status_code == 400
 
 
+def test_domain_color_roundtrip(client):
+    # 기본은 빈 매핑
+    assert client.get("/api/domains").json() == {"colors": {}}
+    # 유효한 hex 저장 후 조회
+    assert client.put("/api/domains/계좌", json={"color": "#f2b544"}).json() == {"status": "saved"}
+    assert client.get("/api/domains").json()["colors"] == {"계좌": "#f2b544"}
+    # 덮어쓰기
+    client.put("/api/domains/계좌", json={"color": "#4c8dff"})
+    assert client.get("/api/domains").json()["colors"]["계좌"] == "#4c8dff"
+
+
+def test_domain_color_rejects_non_hex(client):
+    assert client.put("/api/domains/계좌", json={"color": "blue"}).status_code == 400
+    assert client.put("/api/domains/계좌", json={"color": "#12"}).status_code == 400
+    # 잘못된 값 저장 실패 후에도 매핑은 비어 있어야 한다
+    assert client.get("/api/domains").json() == {"colors": {}}
+
+
 def test_catalog_search(client):
     resp = client.get("/api/catalog/search", params={"q": "정산"}).json()
     names = [e["name"] for e in resp["results"]]

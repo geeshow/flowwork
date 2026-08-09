@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { api, type WorkflowSummary } from "../../api/client";
+import { colorForDomain, isValidHex, PRESET_COLORS } from "../../domainPalette";
 import type { CatalogEntry, EnvironmentValues, Workflow, WorkflowStep } from "../../types";
 import { InputDefEditor } from "./InputDefEditor";
 import { StepEditor } from "./StepEditor";
@@ -9,6 +10,7 @@ interface Props {
   mode: "new" | "edit";
   id?: string;
   initialDomain?: string; // 새 워크플로우 시 기본 도메인 (현재 보던 도메인 탭)
+  initialTask?: string; // 새 워크플로우 시 기본 업무
   onSaved: (id: string) => void;
   onCancel: () => void;
 }
@@ -16,11 +18,11 @@ interface Props {
 // 도메인/업무는 파일 경로 세그먼트이므로 단어문자 + 한글 + 하이픈만 허용
 const SAFE_SEGMENT = /^[\w가-힣-]+$/;
 
-function emptyWorkflow(domain = ""): Workflow {
+function emptyWorkflow(domain = "", task = ""): Workflow {
   return {
     id: crypto.randomUUID(),
     domain,
-    task: "",
+    task,
     name: "",
     description: "",
     baseInputs: [],
@@ -40,23 +42,29 @@ function newStep(): WorkflowStep {
   };
 }
 
-export function WorkflowEditor({ mode, id, initialDomain, onSaved, onCancel }: Props) {
-  const [wf, setWf] = useState<Workflow | null>(mode === "new" ? emptyWorkflow(initialDomain) : null);
+export function WorkflowEditor({ mode, id, initialDomain, initialTask, onSaved, onCancel }: Props) {
+  const [wf, setWf] = useState<Workflow | null>(
+    mode === "new" ? emptyWorkflow(initialDomain, initialTask) : null,
+  );
   const [entries, setEntries] = useState<CatalogEntry[]>([]);
   const [env, setEnv] = useState<EnvironmentValues>({});
   const [workflows, setWorkflows] = useState<WorkflowSummary[]>([]);
+  const [domainColors, setDomainColors] = useState<Record<string, string>>({});
+  // 사용자가 직접 고른 색(도메인 색 오버라이드). 빈 문자열이면 도메인 기본색을 따른다.
+  const [pickedColor, setPickedColor] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [envOpen, setEnvOpen] = useState(false);
 
   useEffect(() => {
     let alive = true;
-    Promise.all([api.searchCatalog(""), api.getEnvironments(), api.listWorkflows()])
-      .then(([cat, envs, wfs]) => {
+    Promise.all([api.searchCatalog(""), api.getEnvironments(), api.listWorkflows(), api.getDomainColors()])
+      .then(([cat, envs, wfs, colors]) => {
         if (!alive) return;
         setEntries(cat.results);
         setEnv(envs);
         setWorkflows(wfs);
+        setDomainColors(colors);
       })
       .catch((e) => alive && setError((e as Error).message));
     return () => {
@@ -98,6 +106,9 @@ export function WorkflowEditor({ mode, id, initialDomain, onSaved, onCancel }: P
   if (!wf) return <p className="muted">불러오는 중…</p>;
 
   const identityReady = !!wf.domain.trim() && !!wf.task.trim() && !!wf.name.trim();
+
+  // 이 워크플로우 도메인의 색상 (사용자가 고른 색 > 저장된 도메인 색 > 결정적 기본색)
+  const domainColor = pickedColor || colorForDomain(wf.domain.normalize("NFC"), domainColors);
 
   const patch = (p: Partial<Workflow>) => setWf({ ...wf, ...p });
 
@@ -147,6 +158,9 @@ export function WorkflowEditor({ mode, id, initialDomain, onSaved, onCancel }: P
     setSaving(true);
     setError(null);
     try {
+      // 도메인 색상 먼저 저장 (선택/변경했든 아니든 도메인에 색을 확정해 둔다)
+      const domain = normalized.domain.normalize("NFC");
+      if (isValidHex(domainColor)) await api.setDomainColor(domain, domainColor);
       await api.saveWorkflow(normalized);
       onSaved(normalized.id);
     } catch (e) {
@@ -181,7 +195,10 @@ export function WorkflowEditor({ mode, id, initialDomain, onSaved, onCancel }: P
               list="domain-options"
               value={wf.domain}
               placeholder="예: 계좌 (선택 또는 입력)"
-              onChange={(e) => patch({ domain: e.target.value })}
+              onChange={(e) => {
+                setPickedColor(""); // 도메인이 바뀌면 그 도메인의 색을 따르도록 오버라이드 해제
+                patch({ domain: e.target.value });
+              }}
             />
             <datalist id="domain-options">
               {domainOptions.map((d) => (
@@ -203,6 +220,31 @@ export function WorkflowEditor({ mode, id, initialDomain, onSaved, onCancel }: P
               ))}
             </datalist>
           </label>
+          <div className="field wide">
+            <span className="field-label">
+              도메인 색상 <span className="hint">(작업 테두리·불릿에 사용 · 도메인 단위로 저장)</span>
+            </span>
+            <div className="color-picker">
+              {PRESET_COLORS.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  className={`color-swatch ${domainColor.toLowerCase() === c.toLowerCase() ? "active" : ""}`}
+                  style={{ background: c }}
+                  title={c}
+                  onClick={() => setPickedColor(c)}
+                />
+              ))}
+              <label className="color-custom" title="직접 선택">
+                <input
+                  type="color"
+                  value={isValidHex(domainColor) ? domainColor : "#4c8dff"}
+                  onChange={(e) => setPickedColor(e.target.value)}
+                />
+                <span className="color-custom-face" style={{ background: domainColor }} />
+              </label>
+            </div>
+          </div>
           <label className="field wide">
             <span className="field-label">이름 <span className="hint">(도메인·업무 내에서 유일)</span></span>
             <input value={wf.name} placeholder="정산 취소 처리" onChange={(e) => patch({ name: e.target.value })} />
@@ -277,6 +319,7 @@ export function WorkflowEditor({ mode, id, initialDomain, onSaved, onCancel }: P
               total={wf.steps.length}
               entries={entries}
               workflows={workflows}
+              domainColors={domainColors}
               selfId={wf.id}
               envKeys={envKeys}
               inputKeys={inputKeys}

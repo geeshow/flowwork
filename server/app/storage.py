@@ -12,8 +12,11 @@ from typing import Any
 
 import aiofiles
 
-from .config import EXECUTIONS_DIR, WORKFLOWS_DIR
+from .config import DOMAINS_FILE, EXECUTIONS_DIR, WORKFLOWS_DIR
 from .models import WorkflowFile, WorkflowSummary
+
+# 도메인 색상은 임의의 hex 색상을 허용한다 (#rgb 또는 #rrggbb).
+_HEX_COLOR = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
 
 # 경로 traversal 방지: 단어문자(유니코드 — 한글 포함) + 하이픈만 허용.
 # '/', '\\', '.', 공백 등이 배제되므로 '..' 같은 traversal이 불가능하다.
@@ -139,6 +142,34 @@ async def delete_workflow(workflow_id: str) -> bool:
         return False
     path.unlink()
     return True
+
+
+# ---------------------------------------------------------------------------
+# 도메인 색상 — data/domains.json에 { "<도메인>": "<팔레트 id>" } 로 저장
+# ---------------------------------------------------------------------------
+def load_domain_colors() -> dict[str, str]:
+    if not DOMAINS_FILE.exists():
+        return {}
+    try:
+        data = json.loads(DOMAINS_FILE.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {str(k): str(v) for k, v in data.items() if _HEX_COLOR.match(str(v))}
+
+
+def set_domain_color(domain: str, color: str) -> dict[str, str]:
+    _safe(domain)  # 도메인명 검증 (traversal/이상문자 차단)
+    if not _HEX_COLOR.match(color):
+        raise ValueError(f"허용되지 않는 색상입니다(#rgb/#rrggbb): {color!r}")
+    colors = load_domain_colors()
+    colors[domain] = color
+    DOMAINS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = DOMAINS_FILE.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(colors, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(DOMAINS_FILE)
+    return colors
 
 
 def list_workflows() -> list[WorkflowSummary]:

@@ -20,6 +20,7 @@ from app import catalog, storage
 from app.config import ALLOWED_HOST_PREFIXES, PROXY_TIMEOUT_SECONDS
 from app.models import (
     CatalogSearchResult,
+    DomainColor,
     ExecutionDetail,
     ProxyRequest,
     ProxyResponse,
@@ -162,6 +163,23 @@ async def delete_workflow(workflow_id: str) -> SaveResult:
     if not deleted:
         raise HTTPException(404, "워크플로우를 찾을 수 없습니다")
     return SaveResult(status="deleted")
+
+
+# ---------------------------------------------------------------------------
+# 3-b. 도메인 색상 (팔레트 id 매핑)
+# ---------------------------------------------------------------------------
+@app.get("/api/domains")
+async def list_domain_colors() -> dict:
+    return {"colors": storage.load_domain_colors()}
+
+
+@app.put("/api/domains/{domain}", response_model=SaveResult)
+async def set_domain_color(domain: str, body: DomainColor) -> SaveResult:
+    try:
+        storage.set_domain_color(domain, body.color)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    return SaveResult(status="saved")
 
 
 # ---------------------------------------------------------------------------

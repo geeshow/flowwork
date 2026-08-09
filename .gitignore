@@ -18,6 +18,7 @@ dist/
 # Runtime data (generated)
 server/data/workflows/
 server/data/executions/
+server/data/domains.json
 
 # Env / secrets
 .env

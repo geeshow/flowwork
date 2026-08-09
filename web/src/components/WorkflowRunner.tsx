@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { api } from "../api/client";
+import { api, type WorkflowSummary } from "../api/client";
+import { colorForDomain } from "../domainPalette";
 import { makeTemplateResolver } from "../engine/catalogLookup";
 import { runWorkflow, type RunDeps } from "../engine/runWorkflow";
 import type {
@@ -23,6 +24,8 @@ interface Props {
 export function WorkflowRunner({ workflow, onOpenExecution }: Props) {
   const [catalog, setCatalog] = useState<CatalogEntry[]>([]);
   const [env, setEnv] = useState<EnvironmentValues>({});
+  const [summaries, setSummaries] = useState<WorkflowSummary[]>([]);
+  const [domainColors, setDomainColors] = useState<Record<string, string>>({});
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
 
@@ -33,11 +36,13 @@ export function WorkflowRunner({ workflow, onOpenExecution }: Props) {
 
   useEffect(() => {
     let alive = true;
-    Promise.all([api.searchCatalog(""), api.getEnvironments()])
-      .then(([cat, envs]) => {
+    Promise.all([api.searchCatalog(""), api.getEnvironments(), api.listWorkflows(), api.getDomainColors()])
+      .then(([cat, envs, wfs, colors]) => {
         if (!alive) return;
         setCatalog(cat.results);
         setEnv(envs);
+        setSummaries(wfs);
+        setDomainColors(colors);
         setLoaded(true);
       })
       .catch((e) => alive && setLoadError((e as Error).message));
@@ -53,6 +58,15 @@ export function WorkflowRunner({ workflow, onOpenExecution }: Props) {
     () => [...workflow.steps].sort((a, b) => a.order - b.order),
     [workflow],
   );
+
+  // 다른 업무를 연결한 스텝 → 연결된 워크플로우의 도메인 색상
+  const accentFor = (stepId: string): string | null => {
+    const step = workflow.steps.find((s) => s.id === stepId);
+    const linkId = step?.workflowBinding?.ref.id;
+    if (!linkId) return null;
+    const linked = summaries.find((w) => w.id === linkId);
+    return linked ? colorForDomain(linked.domain.normalize("NFC"), domainColors) : null;
+  };
 
   async function handleRun() {
     setRunning(true);
@@ -125,7 +139,12 @@ export function WorkflowRunner({ workflow, onOpenExecution }: Props) {
         <h3>스텝</h3>
         <div className="step-list">
           {orderedSteps.map((step) => (
-            <StepCard key={step.id} step={step} state={states.get(step.id)} />
+            <StepCard
+              key={step.id}
+              step={step}
+              state={states.get(step.id)}
+              accentColor={accentFor(step.id)}
+            />
           ))}
         </div>
       </section>

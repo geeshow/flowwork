@@ -1,29 +1,41 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { api, type WorkflowSummary } from "./api/client";
 import { ExecutionDetail, ExecutionList } from "./components/HistoryView";
 import { WorkflowEditor } from "./components/editor/WorkflowEditor";
 import { WorkflowRunner } from "./components/WorkflowRunner";
+import { colorForDomain } from "./domainPalette";
 import type { Workflow } from "./types";
 
 type Route =
   | { view: "workflows" }
+  | { view: "task"; domain: string; task: string }
   | { view: "run"; id: string }
-  | { view: "new"; domain?: string }
+  | { view: "new"; domain?: string; task?: string }
   | { view: "edit"; id: string }
   | { view: "history" }
   | { view: "execution"; executionId: string };
 
 function parseHash(): Route {
   const hash = location.hash.replace(/^#\/?/, "");
-  const [head, a] = hash.split("/");
+  const [head, a, b] = hash.split("/");
+  const dec = (s?: string) => (s ? decodeURIComponent(s) : undefined);
   if (head === "executions" && a) return { view: "execution", executionId: a };
   if (head === "run" && a) return { view: "run", id: a };
-  if (head === "new") return { view: "new", domain: a ? decodeURIComponent(a) : undefined };
+  if (head === "t" && a && b) return { view: "task", domain: dec(a)!, task: dec(b)! };
+  if (head === "new") return { view: "new", domain: dec(a), task: dec(b) };
   if (head === "edit" && a) return { view: "edit", id: a };
   if (head === "history") return { view: "history" };
   return { view: "workflows" };
 }
+
+const newHash = (domain?: string, task?: string) => {
+  if (domain && task) return `#/new/${encodeURIComponent(domain)}/${encodeURIComponent(task)}`;
+  if (domain) return `#/new/${encodeURIComponent(domain)}`;
+  return "#/new";
+};
+const taskHash = (domain: string, task: string) =>
+  `#/t/${encodeURIComponent(domain)}/${encodeURIComponent(task)}`;
 
 export default function App() {
   const [route, setRoute] = useState<Route>(parseHash());
@@ -38,6 +50,7 @@ export default function App() {
     location.hash = hash;
   };
 
+  const inWorkspace = route.view === "workflows" || route.view === "run" || route.view === "task";
   const navHistoryActive = route.view === "history" || route.view === "execution";
 
   return (
@@ -47,7 +60,7 @@ export default function App() {
           flowwork
         </button>
         <div className="nav-links">
-          <button className={route.view === "workflows" || route.view === "run" ? "active" : ""} onClick={() => go("#/")}>
+          <button className={inWorkspace ? "active" : ""} onClick={() => go("#/")}>
             워크플로우
           </button>
           <button className={navHistoryActive ? "active" : ""} onClick={() => go("#/history")}>
@@ -57,11 +70,12 @@ export default function App() {
       </nav>
 
       <main className="content">
-        {route.view === "workflows" || route.view === "run" ? (
+        {inWorkspace ? (
           <WorkflowLayout
             activeId={route.view === "run" ? route.id : undefined}
-            onRun={(i) => go(`#/run/${i}`)}
-            onNew={(domain) => go(domain ? `#/new/${encodeURIComponent(domain)}` : "#/new")}
+            activeTask={route.view === "task" ? { domain: route.domain, task: route.task } : undefined}
+            onOpenTask={(d, t) => go(taskHash(d, t))}
+            onNew={(domain, task) => go(newHash(domain, task))}
           >
             {route.view === "run" ? (
               <RunDetail
@@ -69,9 +83,19 @@ export default function App() {
                 onOpenExecution={(id) => go(`#/executions/${id}`)}
                 onEdit={(i) => go(`#/edit/${i}`)}
               />
+            ) : route.view === "task" ? (
+              <TaskDetail
+                domain={route.domain}
+                task={route.task}
+                onRun={(i) => go(`#/run/${i}`)}
+                onEdit={(i) => go(`#/edit/${i}`)}
+                onNew={() => go(newHash(route.domain, route.task))}
+              />
             ) : (
               <div className="detail-empty">
-                <p className="muted">왼쪽에서 워크플로우를 선택해 실행하거나, "새 워크플로우"로 등록하세요.</p>
+                <p className="muted">
+                  왼쪽에서 업무를 선택하면 해당 업무의 워크플로우가 여기에 표시됩니다.
+                </p>
               </div>
             )}
           </WorkflowLayout>
@@ -80,6 +104,7 @@ export default function App() {
           <WorkflowEditor
             mode="new"
             initialDomain={route.domain}
+            initialTask={route.task}
             onSaved={(i) => go(`#/run/${i}`)}
             onCancel={() => go("#/")}
           />
@@ -112,7 +137,7 @@ export default function App() {
   );
 }
 
-// 그룹 표시 순서 (미지정 그룹은 이 뒤에 가나다순으로 붙는다)
+// 도메인 표시 순서 (미지정 도메인은 이 뒤에 가나다순으로 붙는다)
 const GROUP_ORDER = ["계좌", "계정", "매매", "인증", "마케팅", "상품"];
 
 function orderGroups(groups: string[]): string[] {
@@ -122,137 +147,207 @@ function orderGroups(groups: string[]): string[] {
 }
 
 /**
- * 워크플로우 목록(도메인 탭 + 업무별 목록)을 좌측 사이드바에 고정으로 두고,
- * 우측 detail 영역에 실행 화면(children)을 보여주는 master–detail 레이아웃.
- * 처리(실행) 페이지로 들어가도 도메인/업무 목록이 화면에 유지된다.
+ * 좌측 sticky 사이드바에 [도메인(세로) → 업무(자식 메뉴)] 트리를 고정으로 두고,
+ * 우측 detail 영역에 선택한 업무의 워크플로우 목록 / 실행 화면(children)을 보여준다.
+ * 자식(업무) 메뉴 왼쪽에는 도메인 전용 색상 불릿을 찍어 도메인을 구분한다.
  */
 function WorkflowLayout({
   activeId,
-  onRun,
+  activeTask,
+  onOpenTask,
   onNew,
   children,
 }: {
   activeId?: string;
-  onRun: (id: string) => void;
-  onNew: (domain?: string) => void;
+  activeTask?: { domain: string; task: string };
+  onOpenTask: (domain: string, task: string) => void;
+  onNew: (domain?: string, task?: string) => void;
   children: ReactNode;
 }) {
   const [rows, setRows] = useState<WorkflowSummary[] | null>(null);
+  const [colors, setColors] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
-  const [activeDomain, setActiveDomain] = useState<string | null>(null);
-  const userPicked = useRef(false);
 
   useEffect(() => {
     let alive = true;
-    api
-      .listWorkflows()
-      .then((r) => alive && setRows(r))
+    Promise.all([api.listWorkflows(), api.getDomainColors()])
+      .then(([r, c]) => {
+        if (!alive) return;
+        setRows(r);
+        setColors(c);
+      })
       .catch((e) => alive && setError((e as Error).message));
     return () => {
       alive = false;
     };
   }, []);
 
-  // 도메인 탭 (표준 도메인은 항상 노출) → 도메인 안에서 업무별로 묶기
-  const domains = useMemo(() => {
+  // 실행 중인 워크플로우가 있으면 그 (도메인,업무)를 강조 대상으로
+  const runningWf = useMemo(() => rows?.find((w) => w.id === activeId) ?? null, [rows, activeId]);
+  const hlDomain = activeTask?.domain ?? runningWf?.domain;
+  const hlTask = activeTask?.task ?? runningWf?.task;
+
+  // 도메인 → 업무(정렬) 트리
+  const tree = useMemo(() => {
     const byDomain = new Map<string, WorkflowSummary[]>();
     for (const d of GROUP_ORDER) byDomain.set(d, []);
     for (const w of rows ?? []) {
-      const d = w.domain.normalize("NFC"); // 한글 조합/분해 표현 통일
+      const d = w.domain.normalize("NFC");
       const list = byDomain.get(d) ?? [];
       list.push(w);
       byDomain.set(d, list);
     }
-    return orderGroups([...byDomain.keys()]).map((d) => ({ domain: d, items: byDomain.get(d)! }));
-  }, [rows]);
-
-  // 실행 중인 워크플로우가 있으면 그 도메인을 기본 선택 (사용자가 직접 탭을 고르기 전까지)
-  const activeWfDomain = useMemo(
-    () => rows?.find((w) => w.id === activeId)?.domain.normalize("NFC") ?? null,
-    [rows, activeId],
-  );
-
-  useEffect(() => {
-    if (domains.length === 0) return;
-    setActiveDomain((cur) => {
-      if (userPicked.current && cur && domains.some((d) => d.domain === cur)) return cur;
-      if (activeWfDomain && domains.some((d) => d.domain === activeWfDomain)) return activeWfDomain;
-      if (cur && domains.some((d) => d.domain === cur)) return cur;
-      return domains[0].domain;
+    return orderGroups([...byDomain.keys()]).map((domain) => {
+      const items = byDomain.get(domain)!;
+      const tasks = [...new Set(items.map((w) => w.task.normalize("NFC")))].sort((a, b) =>
+        a.localeCompare(b, "ko"),
+      );
+      return { domain, tasks };
     });
-  }, [domains, activeWfDomain]);
-
-  const pickDomain = (d: string) => {
-    userPicked.current = true;
-    setActiveDomain(d);
-  };
-
-  const active = domains.find((d) => d.domain === activeDomain) ?? null;
-
-  // 활성 도메인의 항목을 업무(task)별로 그룹화
-  const byTask = new Map<string, WorkflowSummary[]>();
-  for (const w of active?.items ?? []) {
-    const list = byTask.get(w.task) ?? [];
-    list.push(w);
-    byTask.set(w.task, list);
-  }
-  const tasks = [...byTask.keys()].sort((a, b) => a.localeCompare(b, "ko"));
+  }, [rows]);
 
   return (
     <div className="workspace">
       <aside className="wf-sidebar">
         <div className="sidebar-head">
           <h2>워크플로우</h2>
-          <button className="primary small" onClick={() => onNew(activeDomain ?? undefined)}>
+          <button className="primary small" onClick={() => onNew(hlDomain)}>
             + 새로
           </button>
         </div>
 
         {error ? <div className="error-banner">{error}</div> : null}
 
-        <div className="group-tabs">
-          {domains.map((d) => (
-            <button
-              key={d.domain}
-              className={`group-tab ${d.domain === activeDomain ? "active" : ""}`}
-              onClick={() => pickDomain(d.domain)}
-            >
-              {d.domain}
-              <span className="group-count">{d.items.length}</span>
-            </button>
-          ))}
-        </div>
-
         {!rows ? (
           <p className="muted">불러오는 중…</p>
-        ) : tasks.length === 0 ? (
-          <p className="muted">이 도메인에는 아직 업무가 없습니다.</p>
         ) : (
-          <div className="sidebar-list">
-            {tasks.map((task) => (
-              <div key={task} className="task-group">
-                <h3 className="task-title">{task}</h3>
-                <ul className="wf-nav-list">
-                  {byTask.get(task)!.map((w) => (
-                    <li key={w.id}>
-                      <button
-                        className={`wf-nav-item ${w.id === activeId ? "active" : ""}`}
-                        onClick={() => onRun(w.id)}
-                        title={w.description || w.name}
-                      >
-                        {w.name}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
+          <nav className="domain-tree">
+            {tree.map(({ domain, tasks }) => {
+              const color = colorForDomain(domain, colors);
+              return (
+                <div key={domain} className="domain-group">
+                  <div className="domain-head">
+                    <span className="domain-swatch" style={{ background: color }} />
+                    <span className="domain-name">{domain}</span>
+                    <button
+                      className="domain-add"
+                      title={`${domain}에 새 워크플로우`}
+                      onClick={() => onNew(domain)}
+                    >
+                      +
+                    </button>
+                  </div>
+                  {tasks.length === 0 ? (
+                    <div className="task-empty muted">업무 없음</div>
+                  ) : (
+                    <ul className="task-menu">
+                      {tasks.map((task) => {
+                        const on = hlDomain === domain && hlTask === task;
+                        return (
+                          <li key={task}>
+                            <button
+                              className={`task-item ${on ? "active" : ""}`}
+                              onClick={() => onOpenTask(domain, task)}
+                            >
+                              <span className="task-bullet" style={{ background: color }} />
+                              <span className="task-text">{task}</span>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
+              );
+            })}
+          </nav>
         )}
       </aside>
 
       <div className="wf-detail">{children}</div>
     </div>
+  );
+}
+
+/** 선택한 업무(도메인/업무) 하위의 모든 워크플로우(작업)를 한 화면에 나열한다. */
+function TaskDetail({
+  domain,
+  task,
+  onRun,
+  onEdit,
+  onNew,
+}: {
+  domain: string;
+  task: string;
+  onRun: (id: string) => void;
+  onEdit: (id: string) => void;
+  onNew: () => void;
+}) {
+  const [rows, setRows] = useState<WorkflowSummary[] | null>(null);
+  const [colors, setColors] = useState<Record<string, string>>({});
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    Promise.all([api.listWorkflows(), api.getDomainColors()])
+      .then(([r, c]) => {
+        if (!alive) return;
+        setRows(r);
+        setColors(c);
+      })
+      .catch((e) => alive && setError((e as Error).message));
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  if (error) return <div className="error-banner">{error}</div>;
+  if (!rows) return <p className="muted">불러오는 중…</p>;
+
+  const color = colorForDomain(domain.normalize("NFC"), colors);
+  const items = rows.filter(
+    (w) => w.domain.normalize("NFC") === domain.normalize("NFC") && w.task.normalize("NFC") === task.normalize("NFC"),
+  );
+
+  return (
+    <section>
+      <div className="task-detail-head">
+        <div className="crumb">
+          <span className="task-bullet lg" style={{ background: color }} />
+          <span className="muted">{domain}</span>
+          <span className="muted">/</span>
+          <h2>{task}</h2>
+        </div>
+        <button className="primary small" onClick={onNew}>
+          + 새 워크플로우
+        </button>
+      </div>
+
+      {items.length === 0 ? (
+        <div className="detail-empty">
+          <p className="muted">이 업무에는 아직 워크플로우가 없습니다. "새 워크플로우"로 추가하세요.</p>
+        </div>
+      ) : (
+        <div className="wf-card-grid">
+          {items.map((w) => (
+            <div key={w.id} className="wf-card" style={{ borderLeftColor: color }}>
+              <button className="wf-card-main" onClick={() => onRun(w.id)}>
+                <span className="wf-card-title">
+                  <span className="task-bullet" style={{ background: color }} />
+                  {w.name}
+                </span>
+                {w.description ? <span className="muted">{w.description}</span> : null}
+              </button>
+              <div className="wf-card-actions">
+                <button className="wf-edit" onClick={() => onEdit(w.id)}>
+                  편집
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -286,9 +381,9 @@ function RunDetail({
   return (
     <>
       <div className="run-topbar">
-        <span className="run-crumb muted">
-          {wf.domain} / {wf.task}
-        </span>
+        <button className="link" onClick={() => (location.hash = taskHash(wf.domain, wf.task))}>
+          ← {wf.domain} / {wf.task}
+        </button>
         <button className="link" onClick={() => onEdit(id)}>
           편집 →
         </button>
