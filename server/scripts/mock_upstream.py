@@ -163,6 +163,48 @@ async def close_account(account_no: str, body: CloseBody):
     }
 
 
+# 데모용 출금 비밀번호(모든 계좌 공통). 실제 서비스라면 절대 이렇게 두지 않는다.
+_DEMO_WITHDRAW_PASSWORD = "0000"
+
+
+class WithdrawBody(BaseModel):
+    amount: float | None = None
+    password: str | None = None
+
+
+def _find_account(account_no: str) -> dict | None:
+    for accounts in _SEC_ACCOUNTS.values():
+        for a in accounts:
+            if a["accountNo"] == account_no:
+                return a
+    return None
+
+
+@app.post("/core/accounts/{account_no}/withdraw")
+async def withdraw(account_no: str, body: WithdrawBody):
+    """계좌 출금 — 비밀번호 확인 후 잔액에서 금액을 차감한다 (데모)."""
+    account = _find_account(account_no)
+    if account is None:
+        return {"data": {"accountNo": account_no, "status": "FAILED", "reason": "계좌 없음"}}
+    if body.password != _DEMO_WITHDRAW_PASSWORD:
+        return {"data": {"accountNo": account_no, "status": "FAILED", "reason": "비밀번호 불일치"}}
+    amount = body.amount or 0
+    balance = account["balance"]["amount"]
+    if amount <= 0:
+        return {"data": {"accountNo": account_no, "status": "FAILED", "reason": "금액 오류"}}
+    if amount > balance:
+        return {"data": {"accountNo": account_no, "status": "FAILED", "reason": "잔액 부족", "balanceAfter": balance}}
+    return {
+        "data": {
+            "accountNo": account_no,
+            "status": "APPROVED",
+            "withdrawnAmount": amount,
+            "balanceAfter": balance - amount,
+            "reason": None,
+        }
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
 

@@ -7,7 +7,28 @@ interface Props {
   inputs: StepInputDef[];
   values: Record<string, Primitive>;
   env?: EnvironmentValues;
+  // 중간 입력 폼일 때: 방금 실행한 스텝의 응답 (STEP_RESULT_COMBO 옵션 소스)
+  stepResponse?: unknown;
   onChange: (key: string, value: Primitive) => void;
+}
+
+// STEP_RESULT_COMBO — 스텝 응답에서 배열을 뽑는다 (data 언랩 + arrayPath).
+function unwrapData(body: unknown): unknown {
+  if (body && typeof body === "object" && !Array.isArray(body) && "data" in (body as object)) {
+    return (body as { data: unknown }).data;
+  }
+  return body;
+}
+function getByPath(obj: unknown, path: string): unknown {
+  return path.split(".").reduce<unknown>((o, k) => {
+    if (o == null || typeof o !== "object") return undefined;
+    return (o as Record<string, unknown>)[k];
+  }, obj);
+}
+function rowsFromResponse(resp: unknown, arrayPath?: string): Record<string, unknown>[] {
+  let base = unwrapData(resp);
+  if (arrayPath) base = getByPath(base, arrayPath);
+  return Array.isArray(base) ? (base as Record<string, unknown>[]) : [];
 }
 
 /**
@@ -15,7 +36,7 @@ interface Props {
  * (values, onChange)로 노출한다. 폼의 최종 결과값이 곧 실행 엔진의
  * ExecutionContext.userInputs가 된다.
  */
-export function StepInputForm({ inputs, values, env, onChange }: Props) {
+export function StepInputForm({ inputs, values, env, stepResponse, onChange }: Props) {
   if (inputs.length === 0) {
     return <p className="muted">사용자 입력 없음</p>;
   }
@@ -27,7 +48,7 @@ export function StepInputForm({ inputs, values, env, onChange }: Props) {
             {def.label}
             <code className="field-key">{def.key}</code>
           </span>
-          <InputControl def={def} values={values} env={env} onChange={onChange} />
+          <InputControl def={def} values={values} env={env} stepResponse={stepResponse} onChange={onChange} />
         </label>
       ))}
     </div>
@@ -38,11 +59,13 @@ function InputControl({
   def,
   values,
   env,
+  stepResponse,
   onChange,
 }: {
   def: StepInputDef;
   values: Record<string, Primitive>;
   env?: EnvironmentValues;
+  stepResponse?: unknown;
   onChange: (key: string, value: Primitive) => void;
 }) {
   switch (def.kind) {
@@ -66,7 +89,8 @@ function InputControl({
     case "MANUAL":
       return (
         <input
-          type={def.valueType === "number" ? "number" : "text"}
+          type={def.valueType === "number" ? "number" : def.valueType === "password" ? "password" : "text"}
+          autoComplete={def.valueType === "password" ? "off" : undefined}
           value={values[def.key] == null ? "" : String(values[def.key])}
           onChange={(e) =>
             onChange(
@@ -89,6 +113,26 @@ function InputControl({
 
     case "DEPENDENT_COMBO":
       return <DependentComboInput def={def} value={values[def.key]} values={values} env={env} onChange={onChange} />;
+
+    case "STEP_RESULT_COMBO": {
+      const options = rowsFromResponse(stepResponse, def.arrayPath).map((row) => ({
+        label: String(row[def.labelField] ?? ""),
+        value: String(row[def.valueField] ?? ""),
+      }));
+      if (options.length === 0) return <span className="hint">선택할 결과가 없습니다.</span>;
+      return (
+        <select value={values[def.key] == null ? "" : String(values[def.key])} onChange={(e) => onChange(def.key, e.target.value)}>
+          <option value="" disabled>
+            선택…
+          </option>
+          {options.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label !== o.value ? `${o.label} (${o.value})` : o.label}
+            </option>
+          ))}
+        </select>
+      );
+    }
   }
 }
 

@@ -7,7 +7,7 @@ export type Primitive = string | number | boolean | null;
 // 입력값 정의 (StepInput) — 4종. 실행 엔진에는 노출되지 않고 UI 레이어에만 존재.
 // ---------------------------------------------------------------------------
 export type StepInputDef =
-  | { kind: "MANUAL"; key: string; label: string; valueType: "string" | "number" }
+  | { kind: "MANUAL"; key: string; label: string; valueType: "string" | "number" | "password" }
   | {
       kind: "API_COMBO";
       key: string;
@@ -41,6 +41,16 @@ export type StepInputDef =
       label: string;
       dependsOnKey: string;
       lookupApiId: string;
+      labelField: string;
+      valueField: string;
+    }
+  | {
+      // 결과 콤보(중간 입력 전용) — 방금 실행한 스텝의 응답(배열)에서 콤보로 선택한다.
+      // arrayPath 비우면 응답(또는 data 언랩) 자체가 배열이라고 본다.
+      kind: "STEP_RESULT_COMBO";
+      key: string;
+      label: string;
+      arrayPath?: string;
       labelField: string;
       valueField: string;
     };
@@ -122,6 +132,9 @@ export interface WorkflowStep {
   branchCondition?: BranchCondition;
   stopOnFailure?: boolean;
   resultView?: StepResultView;
+  // 중간 입력 — 이 스텝이 성공한 뒤, 다음 스텝 전에 사용자로부터 추가로 받는 입력.
+  // 수집된 값은 userInputs에 병합되어 이후 스텝이 USER_INPUT으로 참조한다.
+  midInputs?: StepInputDef[];
 }
 
 // 워크플로우 스텝의 결과 형태 (이후 스텝이 PREV_RESPONSE로 참조 가능)

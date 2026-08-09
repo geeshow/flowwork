@@ -851,6 +851,26 @@ button.link {
   border-top: 1px solid var(--border);
 }
 
+/* 중간 입력 (스텝 카드 하단) */
+.step-midinput {
+  border-top: 1px dashed var(--accent);
+  padding: 14px 16px 16px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.midinput-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 12px;
+}
+.midinput-form .input-run-row {
+  margin-top: 12px;
+  padding-top: 12px;
+}
+.midinput-panel {
+  border: 1px solid var(--accent);
+}
+
 /* group tabs */
 .group-tabs {
   display: flex;

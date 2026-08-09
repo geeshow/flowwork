@@ -6,6 +6,7 @@ import { refKey } from "../../engine/catalogLookup";
 import type { CatalogEntry, StepApiBinding, StepResultView, ValueSource, WorkflowStep } from "../../types";
 import { BranchConditionEditor } from "./BranchConditionEditor";
 import { CatalogPicker } from "./CatalogPicker";
+import { MidInputEditor } from "./MidInputEditor";
 import { VariableBindingEditor } from "./VariableBindingEditor";
 import { WorkflowLinkEditor } from "./WorkflowLinkEditor";
 
@@ -268,6 +269,16 @@ export function StepEditor({
           ) : null}
         </div>
       ) : null}
+
+      <div className="step-section">
+        <h4>중간 입력 (다음 스텝 전에 추가 입력)</h4>
+        <p className="hint">이 스텝이 성공하면 폼이 떠서 값을 받고, 그 값으로 다음 스텝이 진행됩니다. "결과에서 선택"은 이 스텝의 응답(배열)에서 콤보로 고릅니다.</p>
+        <MidInputEditor
+          midInputs={step.midInputs ?? []}
+          outFields={outFields}
+          onChange={(midInputs) => onChange({ ...step, midInputs })}
+        />
+      </div>
 
       <div className="step-section">
         <h4>분기 조건</h4>

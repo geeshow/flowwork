@@ -31,6 +31,16 @@ export interface RunDeps {
   env: EnvironmentValues;
   /** 다른 업무(워크플로우) 연결 스텝을 위해 내부 id로 하위 워크플로우를 로드. */
   getWorkflow?: (id: string) => Promise<Workflow> | Workflow;
+  /**
+   * 중간 입력 수집 — 스텝이 성공하고 midInputs가 있으면 호출된다. UI가 폼을 띄우고
+   * 사용자가 제출할 때까지 대기(Promise 지연)한 뒤, 수집한 값을 반환한다.
+   * 반환값은 userInputs에 병합되어 이후 스텝이 참조한다.
+   */
+  collectMidInputs?: (args: {
+    step: WorkflowStep;
+    uid: string;
+    response: unknown;
+  }) => Promise<Record<string, Primitive>>;
   /** 기본 crypto.randomUUID. 테스트에서 주입 가능. */
   newExecutionId?: () => string;
 }
@@ -123,6 +133,14 @@ async function executeWorkflow(
       if (!ok) {
         hadFailure = true;
         if (step.stopOnFailure) break;
+      } else if (step.midInputs && step.midInputs.length > 0 && deps.collectMidInputs) {
+        // 중간 입력: 폼이 제출될 때까지 대기 후 값 병합 (이후 스텝이 USER_INPUT으로 참조)
+        const extra = await deps.collectMidInputs({
+          step,
+          uid,
+          response: ctx.stepResponses.get(step.id),
+        });
+        Object.assign(ctx.userInputs, extra);
       }
     } catch (e) {
       hadFailure = true;

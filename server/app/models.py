@@ -45,6 +45,7 @@ class WorkflowStep(BaseModel):
     branchCondition: dict[str, Any] | None = None
     stopOnFailure: bool = False
     resultView: dict[str, Any] | None = None  # 결과 표시(원본/표 + 컬럼)
+    midInputs: list[dict[str, Any]] | None = None  # 중간 입력(다음 스텝 전 추가 입력)
 
 
 class WorkflowFile(BaseModel):

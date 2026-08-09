@@ -259,6 +259,90 @@ describe("runWorkflow", () => {
     expect(res.overallStatus).toBe("SUCCESS");
     expect(proxy).toHaveBeenCalledTimes(1); // step_1은 건너뜀
   });
+
+  it("중간 입력: 스텝 성공 후 collectMidInputs 값을 병합해 다음 스텝이 사용", async () => {
+    const bind = (vb: StepApiBinding["variableBindings"] = {}): StepApiBinding => ({
+      catalogEntry: { department: "core", collectionFile: "c", itemPath: ["x"], name: "n" },
+      variableBindings: vb,
+    });
+    const wf: Workflow = {
+      id: "wf_mid",
+      domain: "d",
+      task: "t",
+      name: "mid",
+      baseInputs: [],
+      steps: [
+        {
+          id: "step_1",
+          order: 1,
+          name: "목록",
+          apiBinding: bind(),
+          midInputs: [{ kind: "STEP_RESULT_COMBO", key: "picked", label: "선택", labelField: "name", valueField: "id" }],
+        },
+        {
+          id: "step_2",
+          order: 2,
+          name: "처리",
+          apiBinding: bind({ picked: { kind: "USER_INPUT", inputKey: "picked" } }),
+          stopOnFailure: true,
+        },
+      ],
+    };
+    const proxy = vi.fn(async (): Promise<ProxyResult> => ({
+      response: { status: 200, body: { data: [{ id: "A1", name: "foo" }] } },
+    }));
+    const template = (s: WorkflowStep): PostmanRequest => ({
+      method: "GET",
+      url: { raw: s.id === "step_1" ? "http://localhost:9100/list" : "http://localhost:9100/use/{{picked}}" },
+    });
+    const collectMidInputs = vi.fn(async () => ({ picked: "A1" }));
+    const deps: RunDeps = {
+      getRequestTemplate: template,
+      proxy,
+      env: {},
+      collectMidInputs,
+      newExecutionId: () => "e1",
+    };
+
+    const res = await runWorkflow(wf, {}, deps, () => {});
+
+    expect(res.overallStatus).toBe("SUCCESS");
+    expect(collectMidInputs).toHaveBeenCalledTimes(1);
+    // collectMidInputs는 방금 실행한 스텝의 응답(배열 body)을 받는다
+    expect(collectMidInputs.mock.calls[0][0].response).toEqual({ data: [{ id: "A1", name: "foo" }] });
+    // 병합된 값이 다음 스텝 요청에 반영된다
+    expect(proxy).toHaveBeenCalledTimes(2);
+    expect(proxy.mock.calls[1][0].request.url).toContain("A1");
+  });
+
+  it("중간 입력: 스텝이 실패하면 collectMidInputs를 호출하지 않는다", async () => {
+    const bind = (vb: StepApiBinding["variableBindings"] = {}): StepApiBinding => ({
+      catalogEntry: { department: "core", collectionFile: "c", itemPath: ["x"], name: "n" },
+      variableBindings: vb,
+    });
+    const wf: Workflow = {
+      id: "wf_mid2",
+      domain: "d",
+      task: "t",
+      name: "mid2",
+      baseInputs: [],
+      steps: [
+        { id: "step_1", order: 1, name: "목록", apiBinding: bind(), stopOnFailure: true, midInputs: [{ kind: "MANUAL", key: "x", label: "x", valueType: "string" }] },
+      ],
+    };
+    const proxy = vi.fn(async (): Promise<ProxyResult> => ({ response: { status: 500, body: { error: "boom" } } }));
+    const collectMidInputs = vi.fn(async () => ({ x: "1" }));
+    const deps: RunDeps = {
+      getRequestTemplate: () => ({ method: "GET", url: { raw: "http://localhost:9100/list" } }),
+      proxy,
+      env: {},
+      collectMidInputs,
+      newExecutionId: () => "e1",
+    };
+    const res = await runWorkflow(wf, {}, deps, () => {});
+    expect(res.overallStatus).toBe("FAILED");
+    expect(collectMidInputs).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------

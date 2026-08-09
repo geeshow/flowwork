@@ -11,6 +11,7 @@ import type {
   Primitive,
   StepExecutionState,
   Workflow,
+  WorkflowStep,
 } from "../types";
 import { ApiComboProvider } from "./ApiComboProvider";
 import { StepCard } from "./StepCard";
@@ -33,6 +34,15 @@ export function WorkflowRunner({ workflow, onOpenExecution }: Props) {
   const [states, setStates] = useState<Map<string, StepExecutionState>>(new Map());
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<ExecutionResult | null>(null);
+
+  // 중간 입력: 실행이 스텝 뒤에서 멈춰 폼을 띄우고, 제출 시 Promise를 resolve해 재개한다.
+  const [midPrompt, setMidPrompt] = useState<{
+    uid: string;
+    step: WorkflowStep;
+    response: unknown;
+    resolve: (v: Record<string, Primitive>) => void;
+  } | null>(null);
+  const [midValues, setMidValues] = useState<Record<string, Primitive>>({});
 
   useEffect(() => {
     let alive = true;
@@ -72,6 +82,7 @@ export function WorkflowRunner({ workflow, onOpenExecution }: Props) {
     setRunning(true);
     setResult(null);
     setStates(new Map());
+    setMidPrompt(null);
 
     const wfCache = new Map<string, Workflow>();
     const deps: RunDeps = {
@@ -86,6 +97,12 @@ export function WorkflowRunner({ workflow, onOpenExecution }: Props) {
         wfCache.set(id, wf);
         return wf;
       },
+      // 중간 입력: 폼을 띄우고 사용자가 "계속"을 누를 때까지 대기
+      collectMidInputs: ({ step, uid, response }) =>
+        new Promise((resolve) => {
+          setMidValues({});
+          setMidPrompt({ uid, step, response, resolve });
+        }),
     };
 
     const onStepUpdate = (s: StepExecutionState) =>
@@ -100,6 +117,42 @@ export function WorkflowRunner({ workflow, onOpenExecution }: Props) {
       setRunning(false);
     }
   }
+
+  function submitMid() {
+    if (!midPrompt) return;
+    midPrompt.resolve({ ...midValues });
+    setMidPrompt(null);
+    setMidValues({});
+  }
+
+  // 중간 입력 폼(스텝 카드 하단에 렌더) — 모든 항목이 채워져야 "계속" 활성화
+  const midComplete =
+    !!midPrompt &&
+    midPrompt.step.midInputs!.every((d) => {
+      const v = midValues[d.key];
+      return v != null && v !== "";
+    });
+
+  const renderMidForm = () => {
+    if (!midPrompt) return null;
+    return (
+      <div className="midinput-form">
+        <div className="midinput-title">중간 입력 — 다음 스텝 전에 추가 정보를 입력하세요</div>
+        <StepInputForm
+          inputs={midPrompt.step.midInputs!}
+          values={midValues}
+          env={env}
+          stepResponse={midPrompt.response}
+          onChange={(key, value) => setMidValues((v) => ({ ...v, [key]: value }))}
+        />
+        <div className="input-run-row">
+          <button className="primary" onClick={submitMid} disabled={!midComplete}>
+            계속 →
+          </button>
+        </div>
+      </div>
+    );
+  };
 
   if (!loaded) {
     return loadError ? (
@@ -148,10 +201,15 @@ export function WorkflowRunner({ workflow, onOpenExecution }: Props) {
               state={states.get(step.id)}
               accentColor={accentFor(step.id)}
               resultView={step.resultView}
+              footer={midPrompt?.uid === step.id ? renderMidForm() : null}
             />
           ))}
         </div>
       </section>
+
+      {midPrompt && !orderedSteps.some((s) => s.id === midPrompt.uid) ? (
+        <section className="panel midinput-panel">{renderMidForm()}</section>
+      ) : null}
 
       {result ? (
         <div className={`result-banner ${result.overallStatus.toLowerCase()}`}>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 import type { StepExecutionState, StepResultView, StepStatus, WorkflowStep } from "../types";
 import { ResultTable } from "./ResultTable";
@@ -18,13 +18,15 @@ interface Props {
   accentColor?: string | null;
   // 응답 표시 방식 (표/원본 + 컬럼). 없으면 원본 JSON.
   resultView?: StepResultView;
+  // 카드 하단 슬롯 — 중간 입력 폼 등. 있으면 카드를 펼친 채로 렌더한다.
+  footer?: ReactNode;
 }
 
 /**
  * 스텝 카드 — 실행 상태를 색/아이콘으로 표시하고, 클릭 시 request/response 전체를
  * JSON 뷰어로 펼친다. 실행 화면과 히스토리 상세가 동일 컴포넌트를 재사용한다.
  */
-export function StepCard({ step, state, accentColor, resultView }: Props) {
+export function StepCard({ step, state, accentColor, resultView, footer }: Props) {
   const [open, setOpen] = useState(false);
   // 표 모드로 설정돼 있으면 표를 기본으로, 필요 시 원본 JSON으로 토글
   const [rawResp, setRawResp] = useState(false);
@@ -90,6 +92,8 @@ export function StepCard({ step, state, accentColor, resultView }: Props) {
           ) : null}
         </div>
       ) : null}
+
+      {footer ? <div className="step-midinput">{footer}</div> : null}
     </div>
   );
 }

@@ -9,7 +9,8 @@ interface Props {
   onChange: (inputs: StepInputDef[]) => void;
 }
 
-type InputKind = StepInputDef["kind"];
+// STEP_RESULT_COMBO는 중간 입력 전용이라 기본 입력값 편집기에서는 제외한다.
+type InputKind = Exclude<StepInputDef["kind"], "STEP_RESULT_COMBO">;
 
 function blankInput(kind: InputKind, key: string, label: string): StepInputDef {
   switch (kind) {
@@ -101,10 +102,11 @@ function KindFields({
             타입
             <select
               value={input.valueType}
-              onChange={(e) => onPatch({ valueType: e.target.value as "string" | "number" })}
+              onChange={(e) => onPatch({ valueType: e.target.value as "string" | "number" | "password" })}
             >
               <option value="string">문자열</option>
               <option value="number">숫자</option>
+              <option value="password">비밀번호</option>
             </select>
           </label>
         </div>
@@ -356,5 +358,8 @@ function KindFields({
         </div>
       );
     }
+
+    default:
+      return null;
   }
 }

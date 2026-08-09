@@ -117,6 +117,159 @@ def _account_close() -> dict:
     }
 
 
+def _account_withdraw() -> dict:
+    """출금: app_user_id → (사용자조회로 sec_user_id 확정) → 계좌목록 콤보로 계좌 선택
+    → 금액/비밀번호 입력 → 출금 처리.
+
+    - app_user_id : 직접 입력(MANUAL)
+    - sec_user_id : 의존 조회(DEPENDENT_LOOKUP)
+    - accountNo   : 의존 콤보(DEPENDENT_COMBO) — 계좌 목록에서 선택
+    - amount      : 직접 입력(숫자)
+    - password    : 직접 입력(비밀번호 · 마스킹, 로그 리댁션)
+    """
+    return {
+        "id": "account_withdraw",
+        "domain": "계좌",
+        "task": "출금",
+        "name": "출금",
+        "description": "app_user_id로 사용자를 조회해 계좌 목록에서 출금 계좌를 고르고, 금액·비밀번호를 입력해 출금한다.",
+        "baseInputs": [
+            {"kind": "MANUAL", "key": "app_user_id", "label": "앱 사용자 ID", "valueType": "string"},
+            {
+                "kind": "DEPENDENT_LOOKUP",
+                "key": "sec_user_id",
+                "label": "보안 사용자 ID",
+                "dependsOnKey": "app_user_id",
+                "lookupApiId": _catalog_id("사용자 정보 조회 (앱ID)"),
+                "displayFields": ["name", "sec_user_id"],
+                "valueField": "sec_user_id",
+            },
+            {
+                "kind": "DEPENDENT_COMBO",
+                "key": "accountNo",
+                "label": "출금 계좌",
+                "dependsOnKey": "sec_user_id",
+                "lookupApiId": _catalog_id("계좌 목록 조회 (보안ID)"),
+                "labelField": "accountType",
+                "valueField": "accountNo",
+            },
+            {"kind": "MANUAL", "key": "amount", "label": "출금 금액", "valueType": "number"},
+            {"kind": "MANUAL", "key": "password", "label": "출금 비밀번호", "valueType": "password"},
+        ],
+        "steps": [
+            {
+                "id": "do_withdraw",
+                "order": 1,
+                "name": "계좌 출금",
+                "apiBinding": {
+                    "catalogEntry": {
+                        "department": "core",
+                        "collectionFile": "core.postman_collection.json",
+                        "itemPath": ["계좌"],
+                        "name": "계좌 출금",
+                    },
+                    "variableBindings": {
+                        "accountNo": {"kind": "USER_INPUT", "inputKey": "accountNo"},
+                        "amount": {"kind": "USER_INPUT", "inputKey": "amount"},
+                        "password": {"kind": "USER_INPUT", "inputKey": "password"},
+                    },
+                },
+                "stopOnFailure": True,
+                "resultView": {
+                    "mode": "TABLE",
+                    "columns": ["accountNo", "status", "withdrawnAmount", "balanceAfter", "reason"],
+                },
+            }
+        ],
+    }
+
+
+def _account_withdraw_mid() -> dict:
+    """출금 (중간 선택): 계좌 목록을 먼저 조회해 표로 보여주고, 그 결과에서
+    중간 입력으로 계좌/금액/비밀번호를 받아 출금한다.
+
+    - Step1 계좌 목록 조회 → 중간 입력:
+        accountNo(결과에서 선택) · amount(숫자) · password(비밀번호)
+    - Step2 계좌 출금 → 중간 입력값으로 처리
+    """
+    return {
+        "id": "account_withdraw_mid",
+        "domain": "계좌",
+        "task": "출금",
+        "name": "출금 (중간 선택)",
+        "description": "계좌 목록을 먼저 조회해 표로 확인하고, 그 결과에서 계좌·금액·비밀번호를 중간 입력해 출금한다.",
+        "baseInputs": [
+            {"kind": "MANUAL", "key": "app_user_id", "label": "앱 사용자 ID", "valueType": "string"},
+            {
+                "kind": "DEPENDENT_LOOKUP",
+                "key": "sec_user_id",
+                "label": "보안 사용자 ID",
+                "dependsOnKey": "app_user_id",
+                "lookupApiId": _catalog_id("사용자 정보 조회 (앱ID)"),
+                "displayFields": ["name", "sec_user_id"],
+                "valueField": "sec_user_id",
+            },
+        ],
+        "steps": [
+            {
+                "id": "list_accounts",
+                "order": 1,
+                "name": "계좌 목록 조회 (보안ID)",
+                "apiBinding": {
+                    "catalogEntry": {
+                        "department": "core",
+                        "collectionFile": "core.postman_collection.json",
+                        "itemPath": ["계좌"],
+                        "name": "계좌 목록 조회 (보안ID)",
+                    },
+                    "variableBindings": {"sec_user_id": {"kind": "USER_INPUT", "inputKey": "sec_user_id"}},
+                },
+                "stopOnFailure": True,
+                "resultView": {
+                    "mode": "TABLE",
+                    "columns": ["accountNo", "accountType", "status", "balance.amount"],
+                },
+                # 중간 입력: 위 목록(배열)에서 계좌 선택 + 금액/비밀번호 직접 입력
+                "midInputs": [
+                    {
+                        "kind": "STEP_RESULT_COMBO",
+                        "key": "accountNo",
+                        "label": "출금 계좌",
+                        "arrayPath": "",
+                        "labelField": "accountType",
+                        "valueField": "accountNo",
+                    },
+                    {"kind": "MANUAL", "key": "amount", "label": "출금 금액", "valueType": "number"},
+                    {"kind": "MANUAL", "key": "password", "label": "출금 비밀번호", "valueType": "password"},
+                ],
+            },
+            {
+                "id": "do_withdraw",
+                "order": 2,
+                "name": "계좌 출금",
+                "apiBinding": {
+                    "catalogEntry": {
+                        "department": "core",
+                        "collectionFile": "core.postman_collection.json",
+                        "itemPath": ["계좌"],
+                        "name": "계좌 출금",
+                    },
+                    "variableBindings": {
+                        "accountNo": {"kind": "USER_INPUT", "inputKey": "accountNo"},
+                        "amount": {"kind": "USER_INPUT", "inputKey": "amount"},
+                        "password": {"kind": "USER_INPUT", "inputKey": "password"},
+                    },
+                },
+                "stopOnFailure": True,
+                "resultView": {
+                    "mode": "TABLE",
+                    "columns": ["accountNo", "status", "withdrawnAmount", "balanceAfter", "reason"],
+                },
+            },
+        ],
+    }
+
+
 def _account_list() -> dict:
     """계좌 목록 조회: CIF → (사용자 조회로 sec_user_id 자동 확정) → 계좌 목록 조회."""
     return {
@@ -234,7 +387,15 @@ def _write(wf: dict) -> None:
 
 
 def main() -> None:
-    for wf in [USER_LOOKUP, _account_close(), _account_list(), _account_detail(), *PLACEHOLDERS]:
+    for wf in [
+        USER_LOOKUP,
+        _account_close(),
+        _account_withdraw(),
+        _account_withdraw_mid(),
+        _account_list(),
+        _account_detail(),
+        *PLACEHOLDERS,
+    ]:
         _write(wf)
 
 
