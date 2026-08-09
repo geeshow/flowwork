@@ -49,6 +49,8 @@ USER_LOOKUP = {
                 },
                 "variableBindings": {"customerId": {"kind": "USER_INPUT", "inputKey": "customerId"}},
             },
+            # 단일 객체 응답 → 필드/값 2열 표
+            "resultView": {"mode": "TABLE", "columns": ["id", "name", "phone"]},
         }
     ],
 }
