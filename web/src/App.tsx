@@ -166,8 +166,8 @@ function WorkflowLayout({
   const [rows, setRows] = useState<WorkflowSummary[] | null>(null);
   const [colors, setColors] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
-  // 아코디언: 펼친 도메인 하나만 업무 목록을 보여준다 (미선택 도메인은 접힘)
-  const [openDomain, setOpenDomain] = useState<string | null>(null);
+  // 펼친 도메인 집합. 여러 도메인을 동시에 열어둘 수 있고, 새 선택이 기존 열림을 닫지 않는다.
+  const [openDomains, setOpenDomains] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
     let alive = true;
@@ -188,9 +188,10 @@ function WorkflowLayout({
   const hlDomain = (activeTask?.domain ?? runningWf?.domain)?.normalize("NFC");
   const hlTask = (activeTask?.task ?? runningWf?.task)?.normalize("NFC");
 
-  // 선택된 업무가 있으면 그 도메인을 자동으로 펼친다
+  // 선택된 업무가 있으면 그 도메인을 (기존에 열린 도메인은 유지한 채) 펼친다
   useEffect(() => {
-    if (hlDomain) setOpenDomain(hlDomain);
+    if (!hlDomain) return;
+    setOpenDomains((cur) => (cur.has(hlDomain) ? cur : new Set(cur).add(hlDomain)));
   }, [hlDomain]);
 
   // 도메인 → 업무(정렬) 트리
@@ -230,12 +231,19 @@ function WorkflowLayout({
           <nav className="domain-tree">
             {tree.map(({ domain, tasks }) => {
               const color = colorForDomain(domain, colors);
-              const open = openDomain === domain;
+              const open = openDomains.has(domain);
               return (
                 <div key={domain} className={`domain-group ${open ? "open" : ""}`}>
                   <button
                     className="domain-head"
-                    onClick={() => setOpenDomain((cur) => (cur === domain ? null : domain))}
+                    onClick={() =>
+                      setOpenDomains((cur) => {
+                        const next = new Set(cur);
+                        if (next.has(domain)) next.delete(domain);
+                        else next.add(domain);
+                        return next;
+                      })
+                    }
                     aria-expanded={open}
                   >
                     <span className="domain-caret">{open ? "▾" : "▸"}</span>
