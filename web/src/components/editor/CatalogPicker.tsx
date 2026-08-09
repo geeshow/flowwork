@@ -19,14 +19,16 @@ export function CatalogPicker({ entries, selectedId, onSelect }: Props) {
   const selected = entries.find((e) => e.id === selectedId) ?? null;
 
   const results = useMemo(() => {
-    const needle = q.trim().toLowerCase();
+    // 한글 입력 정규화(NFC) — 조합/분해 표현이 섞여도 검색이 되도록
+    const norm = (s: string) => s.normalize("NFC").toLowerCase();
+    const needle = norm(q.trim());
     const list = needle
       ? entries.filter(
           (e) =>
-            e.name.toLowerCase().includes(needle) ||
-            e.url.toLowerCase().includes(needle) ||
-            e.itemPath.some((p) => p.toLowerCase().includes(needle)) ||
-            e.department.toLowerCase().includes(needle),
+            norm(e.name).includes(needle) ||
+            norm(e.url).includes(needle) ||
+            e.itemPath.some((p) => norm(p).includes(needle)) ||
+            norm(e.department).includes(needle),
         )
       : entries;
     return list.slice(0, 30);

@@ -141,9 +141,10 @@ function WorkflowsPage({
     const byDomain = new Map<string, WorkflowSummary[]>();
     for (const d of GROUP_ORDER) byDomain.set(d, []);
     for (const w of rows ?? []) {
-      const list = byDomain.get(w.domain) ?? [];
+      const d = w.domain.normalize("NFC"); // 한글 조합/분해 표현 통일
+      const list = byDomain.get(d) ?? [];
       list.push(w);
-      byDomain.set(w.domain, list);
+      byDomain.set(d, list);
     }
     return orderGroups([...byDomain.keys()]).map((d) => ({ domain: d, items: byDomain.get(d)! }));
   }, [rows]);

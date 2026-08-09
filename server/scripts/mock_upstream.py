@@ -55,6 +55,68 @@ async def cancel_settlement(settlement_id: str, body: CancelBody):
     return {"data": {"settlementId": settlement_id, "status": "CANCELLED", "reason": body.reason}}
 
 
+# ---------------------------------------------------------------------------
+# core API (약정/사용자/계좌/메타코드) — coreBaseUrl = http://localhost:9100/core
+# ---------------------------------------------------------------------------
+_AGREEMENT_CODES = [
+    {"code": "FUND", "name": "펀드"},
+    {"code": "TRUST", "name": "신탁"},
+    {"code": "ISA", "name": "ISA"},
+    {"code": "PENSION", "name": "연금"},
+]
+
+_META_CODES = {
+    "account_status": [
+        {"code": "ACTIVE", "name": "활성"},
+        {"code": "DORMANT", "name": "휴면"},
+        {"code": "CLOSED", "name": "해지"},
+    ],
+    "user_status": [
+        {"code": "NORMAL", "name": "정상"},
+        {"code": "LOCKED", "name": "잠금"},
+        {"code": "WITHDRAWN", "name": "탈퇴"},
+    ],
+}
+
+_USERS = {
+    "U1000": {"app_user_id": "U1000", "name": "김철수", "phone": "010-1111-2222", "email": "chulsoo@example.com"},
+    "U1001": {"app_user_id": "U1001", "name": "이영희", "phone": "010-3333-4444", "email": "younghee@example.com"},
+}
+
+_ACCOUNTS = {
+    "U1000": [
+        {"accountNo": "110-222-333", "status": "ACTIVE", "product": "펀드"},
+        {"accountNo": "110-444-555", "status": "DORMANT", "product": "신탁"},
+    ],
+    "U1001": [
+        {"accountNo": "220-666-777", "status": "ACTIVE", "product": "연금"},
+    ],
+}
+
+
+@app.get("/core/agreements/codes")
+async def list_agreement_codes():
+    return {"data": _AGREEMENT_CODES}
+
+
+@app.get("/core/meta/codes/{code_group}")
+async def get_meta_codes(code_group: str):
+    return {"data": _META_CODES.get(code_group, [])}
+
+
+@app.get("/core/users/{app_user_id}")
+async def get_user(app_user_id: str):
+    return {"data": _USERS.get(app_user_id)}
+
+
+@app.get("/core/users/{app_user_id}/accounts")
+async def list_accounts(app_user_id: str, status: str | None = None):
+    accounts = _ACCOUNTS.get(app_user_id, [])
+    if status:
+        accounts = [a for a in accounts if a["status"] == status]
+    return {"data": accounts}
+
+
 if __name__ == "__main__":
     import uvicorn
 
