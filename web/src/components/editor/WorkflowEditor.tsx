@@ -2,21 +2,29 @@ import { useEffect, useMemo, useState } from "react";
 
 import { api, type WorkflowSummary } from "../../api/client";
 import type { CatalogEntry, EnvironmentValues, Workflow, WorkflowStep } from "../../types";
+import { InputDefEditor } from "./InputDefEditor";
 import { StepEditor } from "./StepEditor";
 
 interface Props {
   mode: "new" | "edit";
-  group?: string;
   id?: string;
-  onSaved: (group: string, id: string) => void;
+  onSaved: (id: string) => void;
   onCancel: () => void;
 }
 
-// 단어문자 + 한글 + 하이픈 (그룹명에 한글 허용, '/'·'.'·공백 배제)
+// 도메인/업무는 파일 경로 세그먼트이므로 단어문자 + 한글 + 하이픈만 허용
 const SAFE_SEGMENT = /^[\w가-힣-]+$/;
 
 function emptyWorkflow(): Workflow {
-  return { id: "", group: "", name: "", description: "", steps: [] };
+  return {
+    id: crypto.randomUUID(),
+    domain: "",
+    task: "",
+    name: "",
+    description: "",
+    baseInputs: [],
+    steps: [],
+  };
 }
 
 function newStep(): WorkflowStep {
@@ -24,7 +32,6 @@ function newStep(): WorkflowStep {
     id: `step_${Math.random().toString(36).slice(2, 8)}`,
     order: 0,
     name: "조회",
-    inputs: [],
     apiBinding: {
       catalogEntry: { department: "", collectionFile: "", itemPath: [], name: "" },
       variableBindings: {},
@@ -32,7 +39,7 @@ function newStep(): WorkflowStep {
   };
 }
 
-export function WorkflowEditor({ mode, group, id, onSaved, onCancel }: Props) {
+export function WorkflowEditor({ mode, id, onSaved, onCancel }: Props) {
   const [wf, setWf] = useState<Workflow | null>(mode === "new" ? emptyWorkflow() : null);
   const [entries, setEntries] = useState<CatalogEntry[]>([]);
   const [env, setEnv] = useState<EnvironmentValues>({});
@@ -56,25 +63,39 @@ export function WorkflowEditor({ mode, group, id, onSaved, onCancel }: Props) {
   }, []);
 
   useEffect(() => {
-    if (mode !== "edit" || !group || !id) return;
+    if (mode !== "edit" || !id) return;
     let alive = true;
     api
-      .getWorkflow(group, id)
+      .getWorkflow(id)
       .then((w) => alive && setWf(w))
       .catch((e) => alive && setError((e as Error).message));
     return () => {
       alive = false;
     };
-  }, [mode, group, id]);
+  }, [mode, id]);
 
   const envKeys = useMemo(() => new Set(Object.keys(env)), [env]);
   const inputKeys = useMemo(
-    () => (wf ? [...new Set(wf.steps.flatMap((s) => s.inputs.map((i) => i.key).filter(Boolean)))] : []),
+    () => (wf ? wf.baseInputs.map((i) => i.key).filter(Boolean) : []),
     [wf],
   );
 
-  if (error) return <div className="error-banner">{error}</div>;
+  const domainOptions = useMemo(
+    () => [...new Set(workflows.map((w) => w.domain))].sort((a, b) => a.localeCompare(b, "ko")),
+    [workflows],
+  );
+  const taskOptions = useMemo(
+    () =>
+      [...new Set(workflows.filter((w) => !wf || w.domain === wf.domain).map((w) => w.task))].sort(
+        (a, b) => a.localeCompare(b, "ko"),
+      ),
+    [workflows, wf],
+  );
+
+  if (error && !wf) return <div className="error-banner">{error}</div>;
   if (!wf) return <p className="muted">불러오는 중…</p>;
+
+  const identityReady = !!wf.domain.trim() && !!wf.task.trim() && !!wf.name.trim();
 
   const patch = (p: Partial<Workflow>) => setWf({ ...wf, ...p });
 
@@ -90,9 +111,14 @@ export function WorkflowEditor({ mode, group, id, onSaved, onCancel }: Props) {
   };
 
   function validate(w: Workflow): string | null {
-    if (!SAFE_SEGMENT.test(w.group)) return "그룹은 영문/숫자/-/_ 만 사용할 수 있습니다.";
-    if (!SAFE_SEGMENT.test(w.id)) return "ID는 영문/숫자/-/_ 만 사용할 수 있습니다.";
+    if (!SAFE_SEGMENT.test(w.domain)) return "도메인은 영문/숫자/한글/-/_ 만 사용할 수 있습니다.";
+    if (!SAFE_SEGMENT.test(w.task)) return "업무는 영문/숫자/한글/-/_ 만 사용할 수 있습니다.";
     if (!w.name.trim()) return "이름을 입력하세요.";
+    // (도메인, 업무) 내 이름 중복 사전 검사 (서버도 409로 최종 검증)
+    const dup = workflows.some(
+      (x) => x.id !== w.id && x.domain === w.domain && x.task === w.task && x.name === w.name.trim(),
+    );
+    if (dup) return `'${w.domain}/${w.task}'에 이미 '${w.name}' 이름이 있습니다.`;
     for (const [idx, s] of w.steps.entries()) {
       if (s.workflowBinding) {
         if (!s.workflowBinding.ref.id) return `${idx + 1}번 스텝: 연결할 업무를 선택하세요.`;
@@ -108,6 +134,7 @@ export function WorkflowEditor({ mode, group, id, onSaved, onCancel }: Props) {
   async function handleSave() {
     const normalized: Workflow = {
       ...wf!,
+      name: wf!.name.trim(),
       steps: wf!.steps.map((s, idx) => ({ ...s, order: idx + 1 })),
     };
     const problem = validate(normalized);
@@ -119,7 +146,7 @@ export function WorkflowEditor({ mode, group, id, onSaved, onCancel }: Props) {
     setError(null);
     try {
       await api.saveWorkflow(normalized);
-      onSaved(normalized.group, normalized.id);
+      onSaved(normalized.id);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -141,29 +168,41 @@ export function WorkflowEditor({ mode, group, id, onSaved, onCancel }: Props) {
         </div>
       </div>
 
+      {error ? <div className="error-banner">{error}</div> : null}
+
       <section className="panel">
         <h3>기본 정보</h3>
         <div className="meta-grid">
           <label className="field">
-            <span className="field-label">그룹 <code className="field-key">group</code></span>
+            <span className="field-label">도메인</span>
             <input
-              value={wf.group}
-              disabled={mode === "edit"}
-              placeholder="payments"
-              onChange={(e) => patch({ group: e.target.value })}
+              list="domain-options"
+              value={wf.domain}
+              placeholder="예: 계좌 (선택 또는 입력)"
+              onChange={(e) => patch({ domain: e.target.value })}
             />
+            <datalist id="domain-options">
+              {domainOptions.map((d) => (
+                <option key={d} value={d} />
+              ))}
+            </datalist>
           </label>
           <label className="field">
-            <span className="field-label">ID <code className="field-key">id</code></span>
+            <span className="field-label">업무</span>
             <input
-              value={wf.id}
-              disabled={mode === "edit"}
-              placeholder="wf_settlement_cancel"
-              onChange={(e) => patch({ id: e.target.value })}
+              list="task-options"
+              value={wf.task}
+              placeholder="예: 계좌개설 (선택 또는 입력)"
+              onChange={(e) => patch({ task: e.target.value })}
             />
+            <datalist id="task-options">
+              {taskOptions.map((t) => (
+                <option key={t} value={t} />
+              ))}
+            </datalist>
           </label>
           <label className="field wide">
-            <span className="field-label">이름</span>
+            <span className="field-label">이름 <span className="hint">(도메인·업무 내에서 유일)</span></span>
             <input value={wf.name} placeholder="정산 취소 처리" onChange={(e) => patch({ name: e.target.value })} />
           </label>
           <label className="field wide">
@@ -178,15 +217,30 @@ export function WorkflowEditor({ mode, group, id, onSaved, onCancel }: Props) {
       </section>
 
       <section className="panel">
+        <h3>기본 입력값 <span className="hint">(스텝보다 먼저 정의)</span></h3>
+        <InputDefEditor
+          inputs={wf.baseInputs}
+          entries={entries}
+          onChange={(baseInputs) => patch({ baseInputs })}
+        />
+      </section>
+
+      <section className="panel">
         <div className="panel-head">
           <h3>스텝 ({wf.steps.length})</h3>
-          <button className="link" onClick={() => setWf({ ...wf, steps: [...wf.steps, newStep()] })}>
+          <button
+            className="link"
+            disabled={!identityReady}
+            onClick={() => setWf({ ...wf, steps: [...wf.steps, newStep()] })}
+          >
             + 스텝 추가
           </button>
         </div>
 
-        {wf.steps.length === 0 ? (
-          <p className="muted">스텝이 없습니다. "스텝 추가"로 세부 기능(조회/등록/폐쇄/수정)을 등록하세요.</p>
+        {!identityReady ? (
+          <p className="muted">먼저 도메인·업무·이름을 입력하면 스텝을 추가할 수 있습니다.</p>
+        ) : wf.steps.length === 0 ? (
+          <p className="muted">스텝이 없습니다. "스텝 추가"로 API를 선택하고 입력을 매핑하세요.</p>
         ) : null}
 
         <div className="step-editor-list">

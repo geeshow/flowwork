@@ -129,10 +129,10 @@ async def list_workflows() -> dict:
     return {"workflows": [w.model_dump() for w in storage.list_workflows()]}
 
 
-@app.get("/api/workflows/{group}/{workflow_id}", response_model=WorkflowFile)
-async def get_workflow(group: str, workflow_id: str) -> WorkflowFile:
+@app.get("/api/workflows/{workflow_id}", response_model=WorkflowFile)
+async def get_workflow(workflow_id: str) -> WorkflowFile:
     try:
-        wf = await storage.load_workflow(group, workflow_id)
+        wf = await storage.load_workflow(workflow_id)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     if wf is None:
@@ -140,19 +140,23 @@ async def get_workflow(group: str, workflow_id: str) -> WorkflowFile:
     return wf
 
 
-@app.put("/api/workflows/{group}/{workflow_id}", response_model=SaveResult)
-async def save_workflow(group: str, workflow_id: str, wf: WorkflowFile) -> SaveResult:
+@app.put("/api/workflows/{workflow_id}", response_model=SaveResult)
+async def save_workflow(workflow_id: str, wf: WorkflowFile) -> SaveResult:
+    if wf.id != workflow_id:
+        raise HTTPException(400, "경로의 id와 본문의 id가 일치하지 않습니다")
     try:
-        await storage.save_workflow(group, workflow_id, wf)
+        await storage.save_workflow(wf)
+    except storage.DuplicateNameError as e:
+        raise HTTPException(409, str(e)) from e
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     return SaveResult(status="saved")
 
 
-@app.delete("/api/workflows/{group}/{workflow_id}", response_model=SaveResult)
-async def delete_workflow(group: str, workflow_id: str) -> SaveResult:
+@app.delete("/api/workflows/{workflow_id}", response_model=SaveResult)
+async def delete_workflow(workflow_id: str) -> SaveResult:
     try:
-        deleted = await storage.delete_workflow(group, workflow_id)
+        deleted = await storage.delete_workflow(workflow_id)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     if not deleted:

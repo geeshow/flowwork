@@ -1,5 +1,4 @@
 import type {
-  EnvironmentValues,
   PostmanRequest,
   Primitive,
   ResolvedRequest,
@@ -29,23 +28,22 @@ function rawUrl(url: PostmanRequest["url"]): string {
 }
 
 /**
- * Postman 요청 템플릿 + 변수 바인딩 + 환경변수 + 실행 컨텍스트를 합쳐
+ * Postman 요청 템플릿 + 변수 바인딩 + 실행 컨텍스트(env 포함)를 합쳐
  * 프록시로 보낼 준비가 된 ResolvedRequest를 만든다.
  *
- * 변수 우선순위: variableBindings(워크플로우 매핑) > environment(공통값).
+ * 변수 우선순위: variableBindings(워크플로우 매핑) > environment(공통값 fallback).
  * 시크릿(vault:// 참조)은 environment 값에 그대로 남아 프록시가 최종 치환한다.
  */
 export function resolveTemplate(
   request: PostmanRequest,
   binding: StepApiBinding,
-  env: EnvironmentValues,
   ctx: ExecutionContext,
 ): ResolvedRequest {
   const lookup = (name: string): Primitive | undefined => {
     if (name in binding.variableBindings) {
       return resolveValue(binding.variableBindings[name], ctx);
     }
-    if (name in env) return env[name];
+    if (name in ctx.env) return ctx.env[name];
     return undefined;
   };
 

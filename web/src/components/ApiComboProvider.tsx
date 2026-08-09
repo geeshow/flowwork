@@ -14,7 +14,11 @@ interface ApiComboApi {
 
 const Ctx = createContext<ApiComboApi | null>(null);
 
-const emptyCtx = () => ({ userInputs: {}, stepResponses: new Map<string, unknown>() });
+const baseCtx = (env: EnvironmentValues) => ({
+  userInputs: {},
+  env,
+  stepResponses: new Map<string, unknown>(),
+});
 
 function refBinding(entry: CatalogEntry, variableBindings: StepApiBinding["variableBindings"]): StepApiBinding {
   return {
@@ -50,7 +54,7 @@ export function ApiComboProvider({
       if (!entry) throw new Error(`콤보 소스 API를 찾을 수 없습니다: ${sourceApiId}`);
       const key = `${sourceApiId}|${labelField}|${valueField}`;
       return cacheRef.current.get(key, async () => {
-        const request = resolveTemplate(entry.requestTemplate, refBinding(entry, {}), env, emptyCtx());
+        const request = resolveTemplate(entry.requestTemplate, refBinding(entry, {}), baseCtx(env));
         const res = await api.invoke(request);
         return extractRows(res.response.body).map((row) => ({
           label: String(row[labelField]),
@@ -67,7 +71,7 @@ export function ApiComboProvider({
       if (!entry) throw new Error(`조회 API를 찾을 수 없습니다: ${lookupApiId}`);
       // 의존값은 {{dependsOnKey}} 변수에 채운다 (조회 API의 변수명 = dependsOnKey 규약).
       const binding = refBinding(entry, { [dependsOnKey]: { kind: "FIXED", value: dependValue } });
-      const request = resolveTemplate(entry.requestTemplate, binding, env, emptyCtx());
+      const request = resolveTemplate(entry.requestTemplate, binding, baseCtx(env));
       const res = await api.invoke(request);
       return extractOne(res.response.body);
     },

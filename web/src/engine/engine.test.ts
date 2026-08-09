@@ -15,6 +15,7 @@ import { resolveTemplate } from "./template";
 function ctx(partial?: Partial<ExecutionContext>): ExecutionContext {
   return {
     userInputs: partial?.userInputs ?? {},
+    env: partial?.env ?? {},
     stepResponses: partial?.stepResponses ?? new Map(),
   };
 }
@@ -78,11 +79,11 @@ describe("resolveTemplate", () => {
   it("env + 바인딩 + 컨텍스트를 합쳐 요청 완성, 메서드 대문자화, disabled 헤더 제외", () => {
     const c = ctx({
       userInputs: { amount: 1000 },
+      env: { baseUrl: "http://localhost:9100", authToken: "vault://payments/api-token" },
       stepResponses: new Map([["step_1", { data: { settlementId: "S99" } }]]),
     });
-    const env = { baseUrl: "http://localhost:9100", authToken: "vault://payments/api-token" };
 
-    const req = resolveTemplate(template, binding, env, c);
+    const req = resolveTemplate(template, binding, c);
 
     expect(req.method).toBe("POST");
     expect(req.url).toBe("http://localhost:9100/api/settlements/S99/cancel");
@@ -92,10 +93,20 @@ describe("resolveTemplate", () => {
     expect(req.body).toEqual({ reason: "고객요청", amount: 1000 });
   });
 
+  it("ENV 소스는 환경변수값으로 리졸브", () => {
+    const t: PostmanRequest = { method: "GET", url: { raw: "http://x/{{region}}" } };
+    const b: StepApiBinding = {
+      catalogEntry: { department: "", collectionFile: "", itemPath: [], name: "" },
+      variableBindings: { region: { kind: "ENV", envKey: "REGION" } },
+    };
+    const req = resolveTemplate(t, b, ctx({ env: { REGION: "kr" } }));
+    expect(req.url).toBe("http://x/kr");
+  });
+
   it("리졸브 불가한 변수는 에러", () => {
     const bad: PostmanRequest = { method: "GET", url: { raw: "{{unknownVar}}/x" } };
     expect(() =>
-      resolveTemplate(bad, { ...binding, variableBindings: {} }, {}, ctx()),
+      resolveTemplate(bad, { ...binding, variableBindings: {} }, ctx()),
     ).toThrow(/unknownVar/);
   });
 });
@@ -108,7 +119,6 @@ describe("evaluateBranchCondition", () => {
     id: "s2",
     order: 2,
     name: "폐쇄",
-    inputs: [],
     apiBinding: { catalogEntry: { department: "", collectionFile: "", itemPath: [], name: "" }, variableBindings: {} },
     branchCondition: cond,
   });
@@ -147,21 +157,21 @@ function makeWorkflow(): Workflow {
   });
   return {
     id: "wf_settlement_cancel",
-    group: "payments",
+    domain: "payments",
+    task: "기본",
     name: "정산 취소",
+    baseInputs: [],
     steps: [
       {
         id: "step_1",
         order: 1,
         name: "조회",
-        inputs: [],
         apiBinding: bind({ customerId: { kind: "USER_INPUT", inputKey: "customerId" } }),
       },
       {
         id: "step_2",
         order: 2,
         name: "폐쇄",
-        inputs: [],
         branchCondition: { sourceStepId: "step_1", jsonPath: "$.data.status", operator: "EQ", compareValue: "ACTIVE" },
         apiBinding: bind({ settlementId: { kind: "PREV_RESPONSE", stepId: "step_1", jsonPath: "$.data.settlementId" } }),
         stopOnFailure: true,
@@ -264,14 +274,15 @@ function apiBinding(vb: StepApiBinding["variableBindings"] = {}): StepApiBinding
 function subWorkflow(): Workflow {
   return {
     id: "sub_lookup",
-    group: "account",
+    domain: "account",
+    task: "기본",
     name: "사용자 조회(하위)",
+    baseInputs: [],
     steps: [
       {
         id: "s_call",
         order: 1,
         name: "조회",
-        inputs: [],
         apiBinding: apiBinding({ userId: { kind: "USER_INPUT", inputKey: "userId" } }),
       },
     ],
@@ -281,17 +292,18 @@ function subWorkflow(): Workflow {
 function parentWorkflow(): Workflow {
   return {
     id: "parent_flow",
-    group: "account",
+    domain: "account",
+    task: "기본",
     name: "상위 업무",
+    baseInputs: [],
     steps: [
       {
         id: "p1",
         order: 1,
         name: "조회",
-        inputs: [],
         // 다른 업무(sub_lookup) 연결: 부모 입력 accountId → 하위 입력 userId
         workflowBinding: {
-          ref: { group: "account", id: "sub_lookup" },
+          ref: { id: "sub_lookup" },
           inputMappings: { userId: { kind: "USER_INPUT", inputKey: "accountId" } },
         },
       },
@@ -299,7 +311,6 @@ function parentWorkflow(): Workflow {
         id: "p2",
         order: 2,
         name: "수정",
-        inputs: [],
         // 하위 워크플로우 결과를 PREV_RESPONSE로 참조 ($.steps.<하위스텝id>...)
         apiBinding: apiBinding({
           name: { kind: "PREV_RESPONSE", stepId: "p1", jsonPath: "$.steps.s_call.data.name" },
@@ -318,7 +329,7 @@ describe("runWorkflow - 워크플로우 연결", () => {
       getRequestTemplate: template,
       proxy,
       env: {},
-      getWorkflow: (_g, id) => workflows[id],
+      getWorkflow: (id) => workflows[id],
       newExecutionId: () => `exec-${++n}`,
     };
   }
@@ -350,15 +361,16 @@ describe("runWorkflow - 워크플로우 연결", () => {
   it("순환 참조를 감지해 해당 스텝 실패", async () => {
     const selfRef: Workflow = {
       id: "loop",
-      group: "account",
+      domain: "account",
+    task: "기본",
       name: "자기참조",
+      baseInputs: [],
       steps: [
         {
           id: "x",
           order: 1,
           name: "조회",
-          inputs: [],
-          workflowBinding: { ref: { group: "account", id: "loop" }, inputMappings: {} },
+          workflowBinding: { ref: { id: "loop" }, inputMappings: {} },
         },
       ],
     };

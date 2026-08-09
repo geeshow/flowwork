@@ -50,15 +50,20 @@
 
 | 필드 | 설명 |
 |---|---|
-| `group` | 워크플로우 그룹 (부서/업무 단위 분류) |
-| `name` | 워크플로우 이름 |
+| `id` | 내부 식별자 (자동 생성, 사용자에게 노출/입력하지 않음). 도메인/업무가 바뀌어도 불변 |
+| `domain` | 도메인 (최상위 분류) |
+| `task` | 업무 (도메인 하위 분류) |
+| `name` | 워크플로우 이름 — **(도메인, 업무) 내에서 유일** |
+| `baseInputs[]` | 기본 입력값 (4종, 스텝보다 먼저 정의, [3.2](#32-입력값-정의-stepinput) 참고) |
 | `steps[]` | 순서를 가진 스텝 목록 |
+
+- 목록은 **도메인 → 업무 → 워크플로우(이름)** 3계층으로 묶여 표시된다.
+- 등록 시 도메인·업무는 기존 값을 선택하거나 새로 입력(select-or-add)할 수 있고, 편집 시 변경하면 `id` 기준으로 저장 파일이 이동한다(`data/workflows/{domain}/{task}/{id}.json`).
 
 ### 2.2 스텝(세부 기능) 단위
 
-기능 이름은 조회 / 등록 / 폐쇄 / 수정 중 하나로 분류하고, 각 스텝은 아래로 구성된다.
+기능 이름은 조회 / 등록 / 폐쇄 / 수정 중 하나로 분류한다. 스텝은 자체 입력을 갖지 않고 **워크플로우의 기본 입력값**을 사용하며, 아래로 구성된다.
 
-- **입력값 정의** (4종, [3.2](#32-입력값-정의-stepinput) 참고)
 - **처리 단계** — 둘 중 하나:
   - **API 바인딩**(`apiBinding`): Postman Collection 항목 + 변수 매핑 ([4.4](#44-변수--valuesource-바인딩) 참고)
   - **다른 업무 연결**(`workflowBinding`): 다른 워크플로우를 하위 실행 ([3.5](#35-워크플로우-연결-stepworkflowbinding) 참고)
@@ -72,12 +77,14 @@
 ### 3.1 전체 구조
 
 ```
-WorkflowGroup
- └─ Workflow (id, group, name)
-     └─ WorkflowStep (id, order, name: 조회/등록/폐쇄/수정)
-         ├─ StepInput[]        # 필수 입력값 정의 (4종)
-         ├─ StepApiBinding     # 처리 API 1개 (Postman 카탈로그 참조 + 변수 매핑)
-         └─ BranchCondition?   # 없으면 항상 실행, 있으면 이전 스텝 응답으로 스킵 여부 결정
+Domain
+ └─ Task (업무)
+     └─ Workflow (id[내부], domain, task, name[도메인·업무 내 유일])
+         ├─ StepInput[] baseInputs   # 기본 입력값 (4종, 스텝보다 먼저 정의)
+         └─ WorkflowStep (id, order, name: 조회/등록/폐쇄/수정)
+             ├─ StepApiBinding      # 처리 API (Postman 카탈로그 참조 + 변수 매핑)  ┐ 둘 중 하나
+             ├─ StepWorkflowBinding # 다른 업무(워크플로우) 연결 + 입력 매핑        ┘
+             └─ BranchCondition?    # 없으면 항상 실행, 있으면 이전 스텝 응답으로 스킵 여부 결정
 ```
 
 ### 3.2 입력값 정의 (StepInput)
@@ -233,7 +240,7 @@ function extractTemplateVariables(entry: CatalogEntry): string[] {
 }
 ```
 
-등록 화면은 API를 선택하면 이 함수로 변수 목록을 뽑아 보여주고, 관리자가 변수마다 입력 소스(직접입력/API_COMBO/FIXED_COMBO/DEPENDENT_LOOKUP/이전 응답 참조) 중 하나를 고르는 방식으로 동작한다. 별도 매핑 스키마를 새로 설계할 필요가 없다.
+등록 화면은 API를 선택하면 이 함수로 변수 목록을 **모두** 뽑아 보여주고, 관리자가 변수마다 값 소스(**기본 입력값 / 환경변수값 / 고정값 / 전 단계 output**) 중 하나를 고른다. 변수명이 환경변수 key와 같으면(예: `baseUrl`, `authToken`) 자동으로 `ENV` 소스로 채워진다. 전 단계 output이 배열·객체형이면 jsonPath로 고급 매핑한다. 별도 매핑 스키마를 새로 설계할 필요가 없다.
 
 ---
 
@@ -247,13 +254,15 @@ function extractTemplateVariables(entry: CatalogEntry): string[] {
 type Primitive = string | number | boolean | null;
 
 type ValueSource =
-  | { kind: "USER_INPUT"; inputKey: string }
-  | { kind: "FIXED"; value: Primitive }
-  | { kind: "PREV_RESPONSE"; stepId: string; jsonPath: string };
+  | { kind: "USER_INPUT"; inputKey: string }    // 기본 입력값
+  | { kind: "ENV"; envKey: string }             // 환경변수값
+  | { kind: "FIXED"; value: Primitive }         // 고정값
+  | { kind: "PREV_RESPONSE"; stepId: string; jsonPath: string };  // 전 단계 output
 
 interface ExecutionContext {
-  userInputs: Record<string, Primitive>;
-  stepResponses: Map<string, unknown>;
+  userInputs: Record<string, Primitive>;  // 기본 입력값
+  env: Record<string, string>;            // 환경변수값
+  stepResponses: Map<string, unknown>;    // 전 단계 output
 }
 
 function resolveValue(source: ValueSource, ctx: ExecutionContext): Primitive {
@@ -262,6 +271,8 @@ function resolveValue(source: ValueSource, ctx: ExecutionContext): Primitive {
       return source.value;
     case "USER_INPUT":
       return ctx.userInputs[source.inputKey] ?? null;
+    case "ENV":
+      return ctx.env[source.envKey] ?? null;
     case "PREV_RESPONSE": {
       const body = ctx.stepResponses.get(source.stepId);
       if (body === undefined) throw new Error(`이전 단계(${source.stepId})의 응답이 없습니다.`);

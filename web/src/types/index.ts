@@ -33,9 +33,14 @@ export type StepInputDef =
 
 // ---------------------------------------------------------------------------
 // 값 소스 (ValueSource) — 실행 엔진의 리졸버 대상
+//   USER_INPUT    : 기본 입력값 (워크플로우 레벨 baseInputs)
+//   ENV           : 환경변수값
+//   FIXED         : 고정값
+//   PREV_RESPONSE : 전 단계 output (배열/객체는 jsonPath로 고급 매핑)
 // ---------------------------------------------------------------------------
 export type ValueSource =
   | { kind: "USER_INPUT"; inputKey: string }
+  | { kind: "ENV"; envKey: string }
   | { kind: "FIXED"; value: Primitive }
   | { kind: "PREV_RESPONSE"; stepId: string; jsonPath: string };
 
@@ -70,10 +75,10 @@ export interface StepApiBinding {
 }
 
 // 처리 단계로 "다른 업무(워크플로우)"를 연결한다.
-// 부모 컨텍스트(사용자 입력 / 이전 응답)를 하위 워크플로우의 입력값으로 매핑해 실행한다.
+// 부모 컨텍스트(기본 입력값 / 이전 응답)를 하위 워크플로우의 기본 입력값으로 매핑해 실행한다.
 export interface StepWorkflowBinding {
-  ref: { group: string; id: string };
-  // 하위 워크플로우 입력값 key → ValueSource (부모 컨텍스트 기준으로 리졸브)
+  ref: { id: string }; // 내부 id로 참조 (도메인/업무가 바뀌어도 id는 불변)
+  // 하위 워크플로우 기본입력값 key → ValueSource (부모 컨텍스트 기준으로 리졸브)
   inputMappings: Record<string, ValueSource>;
 }
 
@@ -86,7 +91,6 @@ export interface WorkflowStep {
   id: string;
   order: number;
   name: StepName | string;
-  inputs: StepInputDef[];
   // 처리 단계는 둘 중 하나: API 호출(apiBinding) 또는 다른 업무 연결(workflowBinding)
   apiBinding?: StepApiBinding;
   workflowBinding?: StepWorkflowBinding;
@@ -102,10 +106,12 @@ export interface WorkflowStepResult {
 }
 
 export interface Workflow {
-  id: string;
-  group: string;
-  name: string;
+  id: string; // 내부 식별자 (자동 생성, 사용자에게 노출/입력 안 함)
+  domain: string; // 도메인 (구 group)
+  task: string; // 업무
+  name: string; // (도메인, 업무) 내에서 유일
   description?: string;
+  baseInputs: StepInputDef[]; // 기본 입력값 (스텝보다 먼저 정의)
   steps: WorkflowStep[];
 }
 

@@ -8,19 +8,19 @@ import type { Workflow } from "./types";
 
 type Route =
   | { view: "workflows" }
-  | { view: "run"; group: string; id: string }
+  | { view: "run"; id: string }
   | { view: "new" }
-  | { view: "edit"; group: string; id: string }
+  | { view: "edit"; id: string }
   | { view: "history" }
   | { view: "execution"; executionId: string };
 
 function parseHash(): Route {
   const hash = location.hash.replace(/^#\/?/, "");
-  const [head, a, b] = hash.split("/");
+  const [head, a] = hash.split("/");
   if (head === "executions" && a) return { view: "execution", executionId: a };
-  if (head === "run" && a && b) return { view: "run", group: a, id: b };
+  if (head === "run" && a) return { view: "run", id: a };
   if (head === "new") return { view: "new" };
-  if (head === "edit" && a && b) return { view: "edit", group: a, id: b };
+  if (head === "edit" && a) return { view: "edit", id: a };
   if (head === "history") return { view: "history" };
   return { view: "workflows" };
 }
@@ -60,29 +60,27 @@ export default function App() {
       <main className="content">
         {route.view === "workflows" ? (
           <WorkflowsPage
-            onRun={(g, i) => go(`#/run/${g}/${i}`)}
-            onEdit={(g, i) => go(`#/edit/${g}/${i}`)}
+            onRun={(i) => go(`#/run/${i}`)}
+            onEdit={(i) => go(`#/edit/${i}`)}
             onNew={() => go("#/new")}
           />
         ) : null}
         {route.view === "run" ? (
           <RunPage
-            group={route.group}
             id={route.id}
             onOpenExecution={(id) => go(`#/executions/${id}`)}
-            onEdit={(g, i) => go(`#/edit/${g}/${i}`)}
+            onEdit={(i) => go(`#/edit/${i}`)}
           />
         ) : null}
         {route.view === "new" ? (
-          <WorkflowEditor mode="new" onSaved={(g, i) => go(`#/run/${g}/${i}`)} onCancel={() => go("#/")} />
+          <WorkflowEditor mode="new" onSaved={(i) => go(`#/run/${i}`)} onCancel={() => go("#/")} />
         ) : null}
         {route.view === "edit" ? (
           <WorkflowEditor
             mode="edit"
-            group={route.group}
             id={route.id}
-            onSaved={(g, i) => go(`#/run/${g}/${i}`)}
-            onCancel={() => go(`#/run/${route.group}/${route.id}`)}
+            onSaved={(i) => go(`#/run/${i}`)}
+            onCancel={() => go(`#/run/${route.id}`)}
           />
         ) : null}
         {route.view === "history" ? (
@@ -119,13 +117,13 @@ function WorkflowsPage({
   onEdit,
   onNew,
 }: {
-  onRun: (group: string, id: string) => void;
-  onEdit: (group: string, id: string) => void;
+  onRun: (id: string) => void;
+  onEdit: (id: string) => void;
   onNew: () => void;
 }) {
   const [rows, setRows] = useState<WorkflowSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [activeGroup, setActiveGroup] = useState<string | null>(null);
+  const [activeDomain, setActiveDomain] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -138,29 +136,37 @@ function WorkflowsPage({
     };
   }, []);
 
-  // 그룹별로 묶기 (표준 그룹은 항상 탭으로 노출, 데이터에만 있는 그룹은 뒤에 추가)
-  const groups = useMemo(() => {
-    const byGroup = new Map<string, WorkflowSummary[]>();
-    for (const g of GROUP_ORDER) byGroup.set(g, []);
+  // 도메인 탭 (표준 도메인은 항상 노출) → 도메인 안에서 업무별로 묶기
+  const domains = useMemo(() => {
+    const byDomain = new Map<string, WorkflowSummary[]>();
+    for (const d of GROUP_ORDER) byDomain.set(d, []);
     for (const w of rows ?? []) {
-      const list = byGroup.get(w.group) ?? [];
+      const list = byDomain.get(w.domain) ?? [];
       list.push(w);
-      byGroup.set(w.group, list);
+      byDomain.set(w.domain, list);
     }
-    return orderGroups([...byGroup.keys()]).map((g) => ({ group: g, items: byGroup.get(g)! }));
+    return orderGroups([...byDomain.keys()]).map((d) => ({ domain: d, items: byDomain.get(d)! }));
   }, [rows]);
 
-  // 활성 그룹 기본값 = 첫 그룹
   useEffect(() => {
-    if (groups.length > 0 && (activeGroup === null || !groups.some((g) => g.group === activeGroup))) {
-      setActiveGroup(groups[0].group);
+    if (domains.length > 0 && (activeDomain === null || !domains.some((d) => d.domain === activeDomain))) {
+      setActiveDomain(domains[0].domain);
     }
-  }, [groups, activeGroup]);
+  }, [domains, activeDomain]);
 
   if (error) return <div className="error-banner">{error}</div>;
   if (!rows) return <p className="muted">불러오는 중…</p>;
 
-  const active = groups.find((g) => g.group === activeGroup) ?? null;
+  const active = domains.find((d) => d.domain === activeDomain) ?? null;
+
+  // 활성 도메인의 항목을 업무(task)별로 그룹화
+  const byTask = new Map<string, WorkflowSummary[]>();
+  for (const w of active?.items ?? []) {
+    const list = byTask.get(w.task) ?? [];
+    list.push(w);
+    byTask.set(w.task, list);
+  }
+  const tasks = [...byTask.keys()].sort((a, b) => a.localeCompare(b, "ko"));
 
   return (
     <section>
@@ -171,56 +177,53 @@ function WorkflowsPage({
         </button>
       </div>
 
-      {groups.length === 0 ? (
-        <p className="muted">등록된 워크플로우가 없습니다. "새 워크플로우"로 시작하세요.</p>
-      ) : (
-        <>
-          <div className="group-tabs">
-            {groups.map((g) => (
-              <button
-                key={g.group}
-                className={`group-tab ${g.group === activeGroup ? "active" : ""}`}
-                onClick={() => setActiveGroup(g.group)}
-              >
-                {g.group}
-                <span className="group-count">{g.items.length}</span>
-              </button>
-            ))}
-          </div>
+      <div className="group-tabs">
+        {domains.map((d) => (
+          <button
+            key={d.domain}
+            className={`group-tab ${d.domain === activeDomain ? "active" : ""}`}
+            onClick={() => setActiveDomain(d.domain)}
+          >
+            {d.domain}
+            <span className="group-count">{d.items.length}</span>
+          </button>
+        ))}
+      </div>
 
-          {active && active.items.length === 0 ? (
-            <p className="muted">이 그룹에는 아직 등록된 업무가 없습니다. "새 워크플로우"로 추가하세요.</p>
-          ) : (
+      {tasks.length === 0 ? (
+        <p className="muted">이 도메인에는 아직 등록된 업무가 없습니다. "새 워크플로우"로 추가하세요.</p>
+      ) : (
+        tasks.map((task) => (
+          <div key={task} className="task-group">
+            <h3 className="task-title">{task}</h3>
             <ul className="wf-list">
-              {active?.items.map((w) => (
-                <li key={`${w.group}/${w.id}`} className="wf-item">
-                  <button className="wf-row" onClick={() => onRun(w.group, w.id)}>
+              {byTask.get(task)!.map((w) => (
+                <li key={w.id} className="wf-item">
+                  <button className="wf-row" onClick={() => onRun(w.id)}>
                     <span className="wf-name">{w.name}</span>
                     {w.description ? <span className="muted">{w.description}</span> : null}
                   </button>
-                  <button className="wf-edit" onClick={() => onEdit(w.group, w.id)} title="편집">
+                  <button className="wf-edit" onClick={() => onEdit(w.id)} title="편집">
                     편집
                   </button>
                 </li>
               ))}
             </ul>
-          )}
-        </>
+          </div>
+        ))
       )}
     </section>
   );
 }
 
 function RunPage({
-  group,
   id,
   onOpenExecution,
   onEdit,
 }: {
-  group: string;
   id: string;
   onOpenExecution: (id: string) => void;
-  onEdit: (group: string, id: string) => void;
+  onEdit: (id: string) => void;
 }) {
   const [wf, setWf] = useState<Workflow | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -229,13 +232,13 @@ function RunPage({
     let alive = true;
     setWf(null);
     api
-      .getWorkflow(group, id)
+      .getWorkflow(id)
       .then((w) => alive && setWf(w))
       .catch((e) => alive && setError((e as Error).message));
     return () => {
       alive = false;
     };
-  }, [group, id]);
+  }, [id]);
 
   if (error) return <div className="error-banner">{error}</div>;
   if (!wf) return <p className="muted">불러오는 중…</p>;
@@ -245,7 +248,7 @@ function RunPage({
         <button className="link" onClick={() => (location.hash = "#/")}>
           ← 워크플로우 목록
         </button>
-        <button className="link" onClick={() => onEdit(group, id)}>
+        <button className="link" onClick={() => onEdit(id)}>
           편집 →
         </button>
       </div>

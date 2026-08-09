@@ -25,7 +25,8 @@ async function req<T>(input: string, init?: RequestInit): Promise<T> {
 
 export interface WorkflowSummary {
   id: string;
-  group: string;
+  domain: string;
+  task: string;
   name: string;
   description?: string;
 }
@@ -42,14 +43,16 @@ export const api = {
   listWorkflows: () =>
     req<{ workflows: WorkflowSummary[] }>("/api/workflows").then((r) => r.workflows),
 
-  getWorkflow: (group: string, id: string) =>
-    req<Workflow>(`/api/workflows/${group}/${id}`),
+  getWorkflow: (id: string) => req<Workflow>(`/api/workflows/${id}`),
 
   saveWorkflow: (wf: Workflow) =>
-    req<{ status: string }>(`/api/workflows/${wf.group}/${wf.id}`, {
+    req<{ status: string }>(`/api/workflows/${wf.id}`, {
       method: "PUT",
       body: JSON.stringify(wf),
     }),
+
+  deleteWorkflow: (id: string) =>
+    req<{ status: string }>(`/api/workflows/${id}`, { method: "DELETE" }),
 
   searchCatalog: (q = "") =>
     req<{ results: CatalogEntry[]; catalog_version: string | null }>(

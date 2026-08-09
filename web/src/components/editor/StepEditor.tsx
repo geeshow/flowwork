@@ -5,7 +5,6 @@ import { refKey } from "../../engine/catalogLookup";
 import type { CatalogEntry, StepApiBinding, ValueSource, WorkflowStep } from "../../types";
 import { BranchConditionEditor } from "./BranchConditionEditor";
 import { CatalogPicker } from "./CatalogPicker";
-import { InputDefEditor } from "./InputDefEditor";
 import { VariableBindingEditor } from "./VariableBindingEditor";
 import { WorkflowLinkEditor } from "./WorkflowLinkEditor";
 
@@ -53,11 +52,8 @@ export function StepEditor({
     [entries, apiBinding.catalogEntry],
   );
 
-  // 바인딩이 필요한 변수 = 카탈로그 변수 − 환경변수
-  const bindableVars = useMemo(
-    () => (selectedEntry?.variables ?? []).filter((v) => !envKeys.has(v)),
-    [selectedEntry, envKeys],
-  );
+  // API의 모든 변수를 매핑 대상으로 나열한다 (환경변수 포함 — 사용자가 소스를 선택).
+  const bindableVars = useMemo(() => selectedEntry?.variables ?? [], [selectedEntry]);
 
   const setMode = (next: "API" | "WORKFLOW") => {
     if (next === mode) return;
@@ -65,7 +61,7 @@ export function StepEditor({
       onChange({
         ...step,
         apiBinding: undefined,
-        workflowBinding: { ref: { group: "", id: "" }, inputMappings: {} },
+        workflowBinding: { ref: { id: "" }, inputMappings: {} },
       });
     } else {
       onChange({ ...step, workflowBinding: undefined, apiBinding: EMPTY_API_BINDING });
@@ -73,10 +69,11 @@ export function StepEditor({
   };
 
   const onSelectEntry = (entry: CatalogEntry) => {
-    const vars = entry.variables.filter((v) => !envKeys.has(v));
+    // 기존 바인딩 유지 + 변수명이 환경변수 key와 같으면 ENV로 기본값 채움
     const kept: Record<string, ValueSource> = {};
-    for (const v of vars) {
+    for (const v of entry.variables) {
       if (apiBinding.variableBindings[v]) kept[v] = apiBinding.variableBindings[v];
+      else if (envKeys.has(v)) kept[v] = { kind: "ENV", envKey: v };
     }
     onChange({
       ...step,
@@ -129,15 +126,6 @@ export function StepEditor({
       </div>
 
       <div className="step-section">
-        <h4>입력값 정의</h4>
-        <InputDefEditor
-          inputs={step.inputs}
-          entries={entries}
-          onChange={(inputs) => onChange({ ...step, inputs })}
-        />
-      </div>
-
-      <div className="step-section">
         <div className="processing-head">
           <h4>처리 방식</h4>
           <div className="mode-toggle">
@@ -160,6 +148,7 @@ export function StepEditor({
                   variables={bindableVars}
                   bindings={apiBinding.variableBindings}
                   inputKeys={inputKeys}
+                  envKeys={[...envKeys]}
                   prevStepIds={prevSteps}
                   onChange={setBinding}
                 />
@@ -172,6 +161,7 @@ export function StepEditor({
             workflows={workflows}
             selfId={selfId}
             inputKeys={inputKeys}
+            envKeys={[...envKeys]}
             prevStepIds={prevSteps}
             onChange={(workflowBinding) => onChange({ ...step, workflowBinding })}
           />

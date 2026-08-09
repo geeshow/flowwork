@@ -29,8 +29,8 @@ export interface RunDeps {
     request: ResolvedRequest;
   }) => Promise<ProxyResult>;
   env: EnvironmentValues;
-  /** 다른 업무(워크플로우) 연결 스텝을 위해 하위 워크플로우를 로드. */
-  getWorkflow?: (group: string, id: string) => Promise<Workflow> | Workflow;
+  /** 다른 업무(워크플로우) 연결 스텝을 위해 내부 id로 하위 워크플로우를 로드. */
+  getWorkflow?: (id: string) => Promise<Workflow> | Workflow;
   /** 기본 crypto.randomUUID. 테스트에서 주입 가능. */
   newExecutionId?: () => string;
 }
@@ -91,6 +91,7 @@ async function executeWorkflow(
 ): Promise<{ overallStatus: "SUCCESS" | "FAILED"; stepResponses: Map<string, unknown> }> {
   const ctx: ExecutionContext = {
     userInputs,
+    env: deps.env,
     stepResponses: new Map(runtime.resumeFrom?.prefilledResponses ?? []),
   };
   let hadFailure = false;
@@ -145,7 +146,7 @@ async function runApiStep(
 ): Promise<boolean> {
   if (!step.apiBinding) throw new Error("처리 API가 설정되지 않았습니다.");
   const template = deps.getRequestTemplate(step);
-  const request = resolveTemplate(template, step.apiBinding, deps.env, ctx);
+  const request = resolveTemplate(template, step.apiBinding, ctx);
 
   const result = await deps.proxy({
     execution_id: runtime.executionId,
@@ -182,7 +183,7 @@ async function runWorkflowStep(
     subInputs[key] = resolveValue(source, ctx);
   }
 
-  const subWorkflow = await deps.getWorkflow(wb.ref.group, wb.ref.id);
+  const subWorkflow = await deps.getWorkflow(wb.ref.id);
   const subResult = await executeWorkflow(subWorkflow, subInputs, deps, onStepUpdate, {
     executionId: runtime.executionId,
     stepPrefix: `${uid}/`,

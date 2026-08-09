@@ -73,33 +73,69 @@ def list_executions() -> list[dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
-# 워크플로우 CRUD
+# 워크플로우 CRUD — 저장 경로: data/workflows/{domain}/{task}/{id}.json
+#   id는 내부 식별자(불변). 도메인/업무가 바뀌면 파일을 이동한다.
 # ---------------------------------------------------------------------------
-def _workflow_path(group: str, workflow_id: str) -> Path:
-    return WORKFLOWS_DIR / _safe(group) / f"{_safe(workflow_id)}.json"
+class DuplicateNameError(Exception):
+    """같은 (도메인, 업무) 내에서 이름이 중복될 때."""
 
 
-async def save_workflow(group: str, workflow_id: str, wf: WorkflowFile) -> None:
-    path = _workflow_path(group, workflow_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_suffix(".json.tmp")
+def _workflow_path(domain: str, task: str, workflow_id: str) -> Path:
+    return WORKFLOWS_DIR / _safe(domain) / _safe(task) / f"{_safe(workflow_id)}.json"
+
+
+def _find_path_by_id(workflow_id: str) -> Path | None:
+    """id(=파일명)로 기존 파일 경로를 찾는다 (도메인/업무 무관)."""
+    if not WORKFLOWS_DIR.exists():
+        return None
+    return next(WORKFLOWS_DIR.glob(f"*/*/{_safe(workflow_id)}.json"), None)
+
+
+def _name_conflict(domain: str, task: str, name: str, self_id: str) -> bool:
+    """같은 (도메인, 업무)에 동일 name을 가진 다른 워크플로우가 있는지."""
+    folder = WORKFLOWS_DIR / _safe(domain) / _safe(task)
+    if not folder.exists():
+        return False
+    for path in folder.glob("*.json"):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        if data.get("name") == name and data.get("id") != self_id:
+            return True
+    return False
+
+
+async def save_workflow(wf: WorkflowFile) -> None:
+    if _name_conflict(wf.domain, wf.task, wf.name, wf.id):
+        raise DuplicateNameError(f"'{wf.domain}/{wf.task}'에 이미 '{wf.name}' 이름이 있습니다.")
+
+    new_path = _workflow_path(wf.domain, wf.task, wf.id)
+    old_path = _find_path_by_id(wf.id)
+
+    new_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = new_path.with_suffix(".json.tmp")
     async with aiofiles.open(tmp_path, "w", encoding="utf-8") as f:
         await f.write(wf.model_dump_json(indent=2))
-    tmp_path.replace(path)  # 원자적 교체
+    tmp_path.replace(new_path)  # 원자적 교체
+
+    # 도메인/업무가 바뀌어 경로가 달라졌으면 기존 파일 제거 (이동)
+    if old_path is not None and old_path.resolve() != new_path.resolve():
+        old_path.unlink(missing_ok=True)
 
 
-async def load_workflow(group: str, workflow_id: str) -> WorkflowFile | None:
-    path = _workflow_path(group, workflow_id)
-    if not path.exists():
+async def load_workflow(workflow_id: str) -> WorkflowFile | None:
+    path = _find_path_by_id(workflow_id)
+    if path is None:
         return None
     async with aiofiles.open(path, encoding="utf-8") as f:
         raw = await f.read()
     return WorkflowFile.model_validate_json(raw)
 
 
-async def delete_workflow(group: str, workflow_id: str) -> bool:
-    path = _workflow_path(group, workflow_id)
-    if not path.exists():
+async def delete_workflow(workflow_id: str) -> bool:
+    path = _find_path_by_id(workflow_id)
+    if path is None:
         return False
     path.unlink()
     return True
@@ -109,7 +145,7 @@ def list_workflows() -> list[WorkflowSummary]:
     if not WORKFLOWS_DIR.exists():
         return []
     out: list[WorkflowSummary] = []
-    for path in sorted(WORKFLOWS_DIR.glob("*/*.json")):
+    for path in sorted(WORKFLOWS_DIR.glob("*/*/*.json")):
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
@@ -117,7 +153,8 @@ def list_workflows() -> list[WorkflowSummary]:
         out.append(
             WorkflowSummary(
                 id=data.get("id", path.stem),
-                group=data.get("group", path.parent.name),
+                domain=data.get("domain", path.parent.parent.name),
+                task=data.get("task", path.parent.name),
                 name=data.get("name", path.stem),
                 description=data.get("description"),
             )

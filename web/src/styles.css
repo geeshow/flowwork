@@ -420,6 +420,24 @@ button.link {
   background: var(--panel-2);
 }
 
+/* task subgroups within a domain */
+.task-group {
+  margin-bottom: 20px;
+}
+.task-title {
+  font-size: 13px;
+  color: var(--text);
+  margin: 0 0 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.jsonpath-input {
+  font-family: "SF Mono", ui-monospace, Menlo, monospace;
+  font-size: 12px;
+}
+
 /* workflow list rows w/ edit */
 .wf-item {
   display: flex;

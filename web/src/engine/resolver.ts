@@ -1,10 +1,11 @@
 import { JSONPath } from "jsonpath-plus";
 
-import type { Primitive, ValueSource } from "../types";
+import type { EnvironmentValues, Primitive, ValueSource } from "../types";
 
 export interface ExecutionContext {
-  userInputs: Record<string, Primitive>;
-  stepResponses: Map<string, unknown>;
+  userInputs: Record<string, Primitive>; // 기본 입력값
+  env: EnvironmentValues; // 환경변수값
+  stepResponses: Map<string, unknown>; // 전 단계 output
 }
 
 /**
@@ -20,6 +21,8 @@ export function resolveValue(source: ValueSource, ctx: ExecutionContext): Primit
       return source.value;
     case "USER_INPUT":
       return ctx.userInputs[source.inputKey] ?? null;
+    case "ENV":
+      return ctx.env[source.envKey] ?? null;
     case "PREV_RESPONSE": {
       const body = ctx.stepResponses.get(source.stepId);
       if (body === undefined) {

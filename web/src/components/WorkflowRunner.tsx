@@ -9,7 +9,6 @@ import type {
   ExecutionResult,
   Primitive,
   StepExecutionState,
-  StepInputDef,
   Workflow,
 } from "../types";
 import { ApiComboProvider } from "./ApiComboProvider";
@@ -47,14 +46,8 @@ export function WorkflowRunner({ workflow, onOpenExecution }: Props) {
     };
   }, []);
 
-  // 모든 스텝의 입력 정의를 key 기준으로 합쳐 하나의 폼으로 (userInputs는 워크플로우 공용)
-  const allInputs = useMemo(() => {
-    const seen = new Map<string, StepInputDef>();
-    for (const step of workflow.steps) {
-      for (const input of step.inputs) if (!seen.has(input.key)) seen.set(input.key, input);
-    }
-    return [...seen.values()];
-  }, [workflow]);
+  // 기본 입력값(워크플로우 레벨)이 곧 실행 엔진의 userInputs가 된다
+  const allInputs = workflow.baseInputs;
 
   const orderedSteps = useMemo(
     () => [...workflow.steps].sort((a, b) => a.order - b.order),
@@ -71,13 +64,12 @@ export function WorkflowRunner({ workflow, onOpenExecution }: Props) {
       getRequestTemplate: makeTemplateResolver(catalog),
       proxy: api.proxy,
       env,
-      // 다른 업무 연결 스텝: 하위 워크플로우 로드 (세션 내 캐시)
-      getWorkflow: async (group, id) => {
-        const key = `${group}/${id}`;
-        const cached = wfCache.get(key);
+      // 다른 업무 연결 스텝: 내부 id로 하위 워크플로우 로드 (세션 내 캐시)
+      getWorkflow: async (id) => {
+        const cached = wfCache.get(id);
         if (cached) return cached;
-        const wf = await api.getWorkflow(group, id);
-        wfCache.set(key, wf);
+        const wf = await api.getWorkflow(id);
+        wfCache.set(id, wf);
         return wf;
       },
     };
@@ -108,7 +100,8 @@ export function WorkflowRunner({ workflow, onOpenExecution }: Props) {
     <div className="runner">
       <header className="runner-head">
         <div>
-          <span className="badge">{workflow.group}</span>
+          <span className="badge">{workflow.domain}</span>
+          <span className="badge">{workflow.task}</span>
           <h2>{workflow.name}</h2>
           {workflow.description ? <p className="muted">{workflow.description}</p> : null}
         </div>

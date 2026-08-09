@@ -39,7 +39,6 @@ class WorkflowStep(BaseModel):
     id: str
     order: int
     name: str
-    inputs: list[dict[str, Any]] = Field(default_factory=list)
     # 처리 단계: API 호출(apiBinding) 또는 다른 업무 연결(workflowBinding) 중 하나
     apiBinding: dict[str, Any] | None = None
     workflowBinding: dict[str, Any] | None = None
@@ -49,15 +48,18 @@ class WorkflowStep(BaseModel):
 
 class WorkflowFile(BaseModel):
     id: str
-    group: str
+    domain: str
+    task: str
     name: str
     description: str | None = None
+    baseInputs: list[dict[str, Any]] = Field(default_factory=list)  # 기본 입력값
     steps: list[WorkflowStep] = Field(default_factory=list)
 
 
 class WorkflowSummary(BaseModel):
     id: str
-    group: str
+    domain: str
+    task: str
     name: str
     description: str | None = None
 

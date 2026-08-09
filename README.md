@@ -52,7 +52,8 @@ python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
 # 데모 워크플로우 시드 + 목 업스트림 API(:9100) 기동
-python scripts/seed.py
+python scripts/seed.py          # payments/정산, demo/입력 데모
+python scripts/seed_groups.py   # 계좌·매매 도메인/업무 예시 (계좌 폐쇄 = 업무 연결)
 python scripts/mock_upstream.py &
 
 # 시크릿(vault://payments/api-token) 리졸브용 환경변수와 함께 서버 기동(:8000)
@@ -73,8 +74,8 @@ npm run dev        # http://localhost:5173 (→ :8000 프록시)
 ### 테스트
 
 ```bash
-cd server && pytest          # 서버 14 케이스
-cd web && npm test           # 실행 엔진 14 케이스
+cd server && pytest          # 서버 20 케이스
+cd web && npm test           # 실행 엔진 + 캐시 22 케이스
 ```
 
 ## 구현 현황
@@ -90,7 +91,9 @@ cd web && npm test           # 실행 엔진 14 케이스
 | 등록/편집 UI (스텝 편집·정렬, 카탈로그 검색, 변수→ValueSource 바인딩, 분기 조건) | ✅ |
 | 입력 4종 실동작 — API_COMBO(캐시 TTL 5분+in-flight 공유), DEPENDENT_LOOKUP(debounce 조회·자동 확정) | ✅ |
 | 로그 리댁션 — 요청 헤더/바디 + 응답 바디(이력 저장분만, 실시간 응답은 전체 유지) | ✅ |
-| 워크플로우 목록 그룹 탭 (계좌/계정/매매/인증/마케팅/상품 …) | ✅ |
+| 모델: **도메인 → 업무 → 워크플로우** (id 내부화, 이름 (도메인·업무) 내 유일, 도메인/업무 select-or-add·편집 시 파일 이동) | ✅ |
+| 목록 3계층 표시 (도메인 탭 → 업무 섹션 → 워크플로우) | ✅ |
+| 기본 입력값(워크플로우 레벨, 스텝보다 먼저) + 스텝 변수 매핑 = **기본입력값/환경변수값/고정값/전 단계 output** | ✅ |
 | 스텝 처리 = API 호출 **또는 다른 업무(워크플로우) 연결** — 입력 매핑·결과 체이닝·순환 참조 방지 | ✅ |
 | AI 워크플로우 추천, 권한 체크, 외부 Vault 연동, fan-out, 재처리 UI | ⏳ POC 이후 |
 
@@ -100,9 +103,9 @@ cd web && npm test           # 실행 엔진 14 케이스
 워크플로우를 하위 실행한다. 부모의 입력값/이전 응답을 하위 워크플로우 입력으로 매핑하고,
 하위 실행 결과는 `{ status, steps: { <하위스텝id>: 응답 } }` 형태로 노출되어 이후 스텝이
 `PREV_RESPONSE`(`$.steps.<id>...`)로 참조할 수 있다. 순환 참조는 실행 시 감지해 차단한다.
-데모: 계좌 그룹의 **계좌 폐쇄**(`사용자 조회` 업무를 연결 → 그 결과로 정산 조회).
+데모: 계좌 도메인의 **계좌 폐쇄**(`사용자 조회` 업무를 연결 → 그 결과로 정산 조회).
 
-그룹/업무 예시 시드: `python scripts/seed_groups.py`
+도메인/업무 예시 시드: `python scripts/seed_groups.py`
 
 ## 현재 상태
 

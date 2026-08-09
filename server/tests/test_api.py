@@ -40,29 +40,57 @@ def test_proxy_rejects_non_allowlisted_host(client):
     assert resp.status_code == 403
 
 
-def test_workflow_crud_roundtrip(client):
-    wf = {
-        "id": "wf_demo",
-        "group": "payments",
-        "name": "데모",
+def _wf(wf_id, domain, task, name):
+    return {
+        "id": wf_id,
+        "domain": domain,
+        "task": task,
+        "name": name,
+        "baseInputs": [{"kind": "MANUAL", "key": "customerId", "label": "고객 ID", "valueType": "string"}],
         "steps": [{"id": "step_1", "order": 1, "name": "조회"}],
     }
-    assert client.put("/api/workflows/payments/wf_demo", json=wf).json() == {"status": "saved"}
 
-    got = client.get("/api/workflows/payments/wf_demo").json()
+
+def test_workflow_crud_roundtrip(client):
+    wf = _wf("wf_demo", "계좌", "사용자관리", "데모")
+    assert client.put("/api/workflows/wf_demo", json=wf).json() == {"status": "saved"}
+
+    got = client.get("/api/workflows/wf_demo").json()
     assert got["name"] == "데모"
+    assert got["domain"] == "계좌" and got["task"] == "사용자관리"
 
     listing = client.get("/api/workflows").json()["workflows"]
     assert any(w["id"] == "wf_demo" for w in listing)
 
-    assert client.delete("/api/workflows/payments/wf_demo").json() == {"status": "deleted"}
-    assert client.get("/api/workflows/payments/wf_demo").status_code == 404
+    assert client.delete("/api/workflows/wf_demo").json() == {"status": "deleted"}
+    assert client.get("/api/workflows/wf_demo").status_code == 404
 
 
-def test_workflow_rejects_unsafe_group(client):
-    wf = {"id": "x", "group": "..", "name": "x", "steps": []}
-    resp = client.put("/api/workflows/../wf", json=wf)
-    assert resp.status_code in (400, 404)
+def test_workflow_name_unique_within_domain_task(client):
+    client.put("/api/workflows/id_a", json=_wf("id_a", "계좌", "개설", "계좌 개설"))
+    # 같은 도메인/업무에 같은 이름 → 409
+    dup = client.put("/api/workflows/id_b", json=_wf("id_b", "계좌", "개설", "계좌 개설"))
+    assert dup.status_code == 409
+    # 다른 업무면 같은 이름 허용
+    ok = client.put("/api/workflows/id_c", json=_wf("id_c", "계좌", "폐쇄", "계좌 개설"))
+    assert ok.status_code == 200
+
+
+def test_workflow_moves_file_on_domain_change(client):
+    client.put("/api/workflows/mv1", json=_wf("mv1", "계좌", "개설", "이동테스트"))
+    # 도메인/업무를 바꿔 저장 → id는 그대로, 경로 이동
+    client.put("/api/workflows/mv1", json=_wf("mv1", "매매", "주문", "이동테스트"))
+    got = client.get("/api/workflows/mv1").json()
+    assert got["domain"] == "매매" and got["task"] == "주문"
+    # 목록에 중복 없이 한 건만
+    listing = client.get("/api/workflows").json()["workflows"]
+    assert len([w for w in listing if w["id"] == "mv1"]) == 1
+
+
+def test_workflow_rejects_unsafe_segment(client):
+    wf = _wf("x", "..", "t", "x")
+    resp = client.put("/api/workflows/x", json=wf)
+    assert resp.status_code == 400
 
 
 def test_catalog_search(client):
