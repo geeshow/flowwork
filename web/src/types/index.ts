@@ -90,6 +90,17 @@ export interface StepWorkflowBinding {
 // ---------------------------------------------------------------------------
 export type StepName = "조회" | "등록" | "폐쇄" | "수정";
 
+// 스텝 응답을 어떻게 보여줄지. RAW(원본 JSON) 또는 TABLE(표).
+//   - 응답에서 data를 자동 언랩한 뒤:
+//       배열이면  → 각 원소가 행, columns가 열
+//       객체면    → 필드/값 2열 표 (columns는 표시할 필드)
+//   - columns가 비어있으면 전체 필드를 자동 사용.
+//   - columns 항목은 점 표기(예: owner.name)로 다차원 필드도 지정 가능.
+export interface StepResultView {
+  mode: "RAW" | "TABLE";
+  columns: string[];
+}
+
 export interface WorkflowStep {
   id: string;
   order: number;
@@ -99,6 +110,7 @@ export interface WorkflowStep {
   workflowBinding?: StepWorkflowBinding;
   branchCondition?: BranchCondition;
   stopOnFailure?: boolean;
+  resultView?: StepResultView;
 }
 
 // 워크플로우 스텝의 결과 형태 (이후 스텝이 PREV_RESPONSE로 참조 가능)

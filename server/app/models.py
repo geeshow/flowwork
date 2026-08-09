@@ -44,6 +44,7 @@ class WorkflowStep(BaseModel):
     workflowBinding: dict[str, Any] | None = None
     branchCondition: dict[str, Any] | None = None
     stopOnFailure: bool = False
+    resultView: dict[str, Any] | None = None  # 결과 표시(원본/표 + 컬럼)
 
 
 class WorkflowFile(BaseModel):

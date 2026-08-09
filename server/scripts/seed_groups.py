@@ -133,6 +133,10 @@ def _account_list() -> dict:
                     },
                 },
                 "stopOnFailure": True,
+                "resultView": {
+                    "mode": "TABLE",
+                    "columns": ["accountNo", "name", "accountType", "status", "openedAt", "closedAt"],
+                },
             }
         ],
     }

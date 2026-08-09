@@ -1,9 +1,9 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import type { WorkflowSummary } from "../../api/client";
 import { colorForDomain } from "../../domainPalette";
 import { refKey } from "../../engine/catalogLookup";
-import type { CatalogEntry, StepApiBinding, ValueSource, WorkflowStep } from "../../types";
+import type { CatalogEntry, StepApiBinding, StepResultView, ValueSource, WorkflowStep } from "../../types";
 import { BranchConditionEditor } from "./BranchConditionEditor";
 import { CatalogPicker } from "./CatalogPicker";
 import { VariableBindingEditor } from "./VariableBindingEditor";
@@ -61,6 +61,19 @@ export function StepEditor({
 
   // API의 모든 변수를 매핑 대상으로 나열한다 (환경변수 포함 — 사용자가 소스를 선택).
   const bindableVars = useMemo(() => selectedEntry?.variables ?? [], [selectedEntry]);
+
+  // 결과 표시(원본/표 + 컬럼)
+  const rv: StepResultView = step.resultView ?? { mode: "RAW", columns: [] };
+  const setRv = (patch: Partial<StepResultView>) =>
+    onChange({ ...step, resultView: { ...rv, ...patch } });
+  const outFields = selectedEntry?.outputFields ?? [];
+  const customCols = rv.columns.filter((c) => !outFields.includes(c));
+  const [colText, setColText] = useState("");
+  const addCol = () => {
+    const c = colText.trim();
+    if (c && !rv.columns.includes(c)) setRv({ columns: [...rv.columns, c] });
+    setColText("");
+  };
 
   const setMode = (next: "API" | "WORKFLOW") => {
     if (next === mode) return;
@@ -180,6 +193,81 @@ export function StepEditor({
           />
         )}
       </div>
+
+      {mode === "API" ? (
+        <div className="step-section">
+          <h4>결과 표시</h4>
+          <div className="mode-toggle">
+            <button className={rv.mode === "RAW" ? "active" : ""} onClick={() => setRv({ mode: "RAW" })}>
+              원본(JSON)
+            </button>
+            <button className={rv.mode === "TABLE" ? "active" : ""} onClick={() => setRv({ mode: "TABLE" })}>
+              표
+            </button>
+          </div>
+
+          {rv.mode === "TABLE" ? (
+            <div className="result-cols">
+              {outFields.length ? (
+                <div className="checkbox-row">
+                  {outFields.map((f) => {
+                    const on = rv.columns.includes(f);
+                    return (
+                      <label key={f} className={`checkbox-chip ${on ? "on" : ""}`}>
+                        <input
+                          type="checkbox"
+                          checked={on}
+                          onChange={(e) =>
+                            setRv({
+                              columns: e.target.checked
+                                ? [...rv.columns, f]
+                                : rv.columns.filter((x) => x !== f),
+                            })
+                          }
+                        />
+                        {f}
+                      </label>
+                    );
+                  })}
+                </div>
+              ) : null}
+
+              {customCols.length ? (
+                <div className="checkbox-row">
+                  {customCols.map((c) => (
+                    <span key={c} className="col-chip">
+                      {c}
+                      <button className="chip-x" onClick={() => setRv({ columns: rv.columns.filter((x) => x !== c) })}>
+                        ✕
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+
+              <div className="col-add">
+                <input
+                  placeholder="중첩 필드 추가 (예: owner.name)"
+                  value={colText}
+                  onChange={(e) => setColText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      addCol();
+                    }
+                  }}
+                />
+                <button className="link small" onClick={addCol}>
+                  + 추가
+                </button>
+              </div>
+              <p className="hint">
+                비우면 전체 필드 자동 · 응답이 배열이면 각 행, 객체면 필드/값 표. 점 표기로 중첩 값을 지정합니다.
+              </p>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="step-section">
         <h4>분기 조건</h4>

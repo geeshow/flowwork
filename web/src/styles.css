@@ -585,6 +585,86 @@ button.link {
   font-family: "SF Mono", ui-monospace, Menlo, monospace;
   font-size: 12px;
 }
+.json-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* result table (표 모드) */
+.result-table-wrap {
+  overflow-x: auto;
+  padding: 4px;
+}
+.result-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 12px;
+}
+.result-table th,
+.result-table td {
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  text-align: left;
+  white-space: nowrap;
+  vertical-align: top;
+}
+.result-table thead th {
+  background: var(--panel-2);
+  color: var(--muted);
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+}
+.result-table.kv th {
+  background: var(--panel-2);
+  color: var(--muted);
+  width: 1%;
+  white-space: nowrap;
+}
+.result-empty {
+  padding: 12px;
+  font-size: 13px;
+}
+
+/* result-view column config (편집기) */
+.result-cols {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.col-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 4px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 7px;
+  font-size: 13px;
+  font-family: "SF Mono", ui-monospace, Menlo, monospace;
+}
+.chip-x {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1;
+}
+.chip-x:hover {
+  color: var(--failed);
+}
+.col-add {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.col-add input {
+  flex: 1;
+  padding: 7px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--text);
+}
 
 /* ---- banners ---- */
 .error-banner {

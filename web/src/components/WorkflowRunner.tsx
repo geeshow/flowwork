@@ -147,6 +147,7 @@ export function WorkflowRunner({ workflow, onOpenExecution }: Props) {
               step={step}
               state={states.get(step.id)}
               accentColor={accentFor(step.id)}
+              resultView={step.resultView}
             />
           ))}
         </div>
