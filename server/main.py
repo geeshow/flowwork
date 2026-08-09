@@ -26,7 +26,7 @@ from app.models import (
     SaveResult,
     WorkflowFile,
 )
-from app.redaction import redact_for_logging
+from app.redaction import redact_for_logging, redact_response
 from app.secrets import SecretNotFoundError, resolve_vault_deep
 
 
@@ -82,14 +82,20 @@ async def proxy_call(req: ProxyRequest) -> ProxyResponse:
         except httpx.RequestError as e:
             status, resp_body = None, {"error": str(e)}
 
+    full_response = {"status": status, "body": resp_body}
     log_entry = ProxyResponse(
         step_id=req.step_id,
         request=redact_for_logging(req.model_dump()),
-        response={"status": status, "body": resp_body},
+        response=full_response,  # 프론트로는 전체 응답 반환 (PREV_RESPONSE 체이닝용)
         elapsed_ms=int((time.time() - start) * 1000),
         timestamp=time.time(),
     )
-    stored = {**log_entry.model_dump(), "workflow_id": req.workflow_id}
+    # 이력(JSONL, URL 공유)에는 응답 body도 리댁션한 사본을 저장
+    stored = {
+        **log_entry.model_dump(),
+        "response": redact_response(full_response),
+        "workflow_id": req.workflow_id,
+    }
     await storage.append_execution_log(req.execution_id, stored)
     return log_entry
 

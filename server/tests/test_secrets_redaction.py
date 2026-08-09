@@ -1,6 +1,6 @@
 import pytest
 
-from app.redaction import REDACTED, redact_for_logging
+from app.redaction import REDACTED, redact_body, redact_for_logging, redact_response
 from app.secrets import (
     SecretNotFoundError,
     resolve_environment_values,
@@ -19,6 +19,32 @@ def test_redact_masks_sensitive_headers_only():
     assert out["headers"]["X-Trace"] == "keep-me"
     # 원본 불변
     assert req["headers"]["Authorization"] == "Bearer secret"
+
+
+def test_redact_body_masks_sensitive_field_names_recursively():
+    body = {
+        "accessToken": "abc",
+        "user": {"name": "kim", "api_key": "k1", "refreshToken": "r1"},
+        "items": [{"password": "p"}, {"id": "keep"}],
+        "settlementId": "S-1",
+    }
+    out = redact_body(body)
+    assert out["accessToken"] == REDACTED
+    assert out["user"]["api_key"] == REDACTED
+    assert out["user"]["refreshToken"] == REDACTED
+    assert out["items"][0]["password"] == REDACTED
+    # 비민감 필드는 유지
+    assert out["user"]["name"] == "kim"
+    assert out["items"][1]["id"] == "keep"
+    assert out["settlementId"] == "S-1"
+
+
+def test_redact_response_only_touches_body():
+    resp = {"status": 200, "body": {"token": "t", "ok": True}}
+    out = redact_response(resp)
+    assert out["status"] == 200
+    assert out["body"]["token"] == REDACTED
+    assert out["body"]["ok"] is True
 
 
 def test_resolve_secret_from_env(monkeypatch):

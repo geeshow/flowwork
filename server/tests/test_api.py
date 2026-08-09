@@ -73,3 +73,34 @@ def test_catalog_search(client):
 
 def test_execution_not_found(client):
     assert client.get("/api/executions/nope").status_code == 404
+
+
+def test_proxy_returns_full_body_but_stores_redacted(client, monkeypatch):
+    class FakeResp:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {"accessToken": "SECRET123", "data": {"id": "X"}}
+
+    async def fake_request(self, method, url, **kw):
+        return FakeResp()
+
+    monkeypatch.setattr("httpx.AsyncClient.request", fake_request)
+
+    r = client.post(
+        "/api/proxy",
+        json={
+            "execution_id": "e-red",
+            "step_id": "s1",
+            "method": "GET",
+            "url": "http://localhost:9100/x",
+        },
+    )
+    # 프론트로는 전체 응답 반환 (체이닝을 위해 토큰이 보여야 함)
+    assert r.json()["response"]["body"]["accessToken"] == "SECRET123"
+
+    # 이력에는 리댁션된 사본 저장 (URL 공유 유출 방지)
+    detail = client.get("/api/executions/e-red").json()
+    assert detail["steps"][0]["response"]["body"]["accessToken"] == "***REDACTED***"
+    assert detail["steps"][0]["response"]["body"]["data"]["id"] == "X"

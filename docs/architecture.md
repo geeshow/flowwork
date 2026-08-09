@@ -515,18 +515,31 @@ environment 파일에는 시크릿 실값 대신 참조만 남긴다. 분석 배
 
 ### 9.2 리졸브 시점
 
-프록시가 실제 API를 호출하기 직전, request 조립 마지막 단계에서만 리졸브한다. 리졸브된 값은 함수 스코프를 벗어나거나 프론트로 반환되는 응답에 포함되면 안 된다.
+시크릿은 **프론트를 통과하는 동안 계속 `vault://scope/key` 참조 형태로만 존재**하고, 프록시가 실제 API를 호출하기 직전에만 실값으로 치환된다:
+
+1. 서버가 environment 값을 프론트에 내려줄 때 vault 참조를 **그대로** 전달한다 (참조 문자열 자체는 시크릿이 아님).
+2. 프론트는 템플릿 리졸브 시 `{{authToken}}` 자리에 `vault://...` 참조를 그대로 심는다 → 요청 헤더/바디에 참조가 박힌 상태로 프록시에 도착한다.
+3. 프록시가 요청 구조(headers/body) 전체를 재귀 순회하며 vault 참조를 실값으로 치환한 **사본**을 만들어 그 사본으로만 upstream을 호출한다. 실값은 함수 스코프를 벗어나지 않고, 로그(원본 참조 기준)나 프론트 반환 응답에 포함되지 않는다.
 
 ```python
-VAULT_REF_PATTERN = re.compile(r"^vault://([^/]+)/(.+)$")
+# 큰 문자열 안에 박힌 참조(예: "Bearer vault://payments/api-token")까지 치환
+VAULT_TOKEN_PATTERN = re.compile(r"vault://([^/\s]+)/([^\s\"']+)")
 
-def resolve_environment_values(env: dict[str, str]) -> dict[str, str]:
-    resolved = {}
-    for key, value in env.items():
-        match = VAULT_REF_PATTERN.match(value)
-        resolved[key] = resolve_secret(*match.groups()) if match else value
-    return resolved
+def resolve_vault_in_str(value: str) -> str:
+    return VAULT_TOKEN_PATTERN.sub(lambda m: resolve_secret(m.group(1), m.group(2)), value)
+
+def resolve_vault_deep(obj):
+    """headers/body 등 임의 구조를 재귀 순회하며 vault 참조를 리졸브. 호출 직전에만 사용."""
+    if isinstance(obj, str):
+        return resolve_vault_in_str(obj)
+    if isinstance(obj, dict):
+        return {k: resolve_vault_deep(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [resolve_vault_deep(v) for v in obj]
+    return obj
 ```
+
+> environment 맵 자체를 미리 치환하는 `resolve_environment_values`(단일 값 참조 `^vault://...$` 매칭)도 유틸로 남겨두지만, 실제 호출 경로에서는 "요청 조립 후 마지막에 요청 구조 전체를 리졸브"하는 위 방식을 쓴다. 프론트가 참조를 어디에 심었든(헤더 값 일부, 바디 등) 일괄 처리되고, 리졸브 지점이 프록시 한 곳으로 모인다.
 
 ### 9.3 시크릿 프로바이더
 
@@ -534,7 +547,11 @@ def resolve_environment_values(env: dict[str, str]) -> dict[str, str]:
 
 ### 9.4 로그 리댁션
 
-실행 이력(JSONL)은 request 전체를 기록하고, 이 이력은 URL로 공유되는 기능이므로 **시크릿이 로그에 남으면 공유 링크를 통해 그대로 유출**될 수 있다. 헤더 리댁션은 POC 단계에서도 유지한다.
+실행 이력(JSONL)은 request/response를 기록하고, 이 이력은 URL로 공유되는 기능이므로 **시크릿이 로그에 남으면 공유 링크를 통해 그대로 유출**될 수 있다. 리댁션은 세 지점에서 적용한다:
+
+- **요청 헤더**: 고정 키 목록(`authorization`, `x-api-key`, `cookie`) 마스킹
+- **요청 body**: 민감해 보이는 필드명(`token`/`password`/`secret`/`apiKey`/`accessToken`/…)을 재귀 마스킹
+- **응답 body**: 동일한 필드명 기준 재귀 마스킹
 
 ```python
 REDACT_HEADER_KEYS = {"authorization", "x-api-key", "cookie"}
@@ -546,10 +563,14 @@ def redact_for_logging(request: dict) -> dict:
             k: ("***REDACTED***" if k.lower() in REDACT_HEADER_KEYS else v)
             for k, v in redacted["headers"].items()
         }
+    if "body" in redacted:
+        redacted["body"] = redact_body(redacted["body"])  # 필드명 기반 재귀 마스킹
     return redacted
 ```
 
-body 안에 비밀번호/토큰 필드가 들어갈 가능성이 있다면, 변수 바인딩 시점에 "이 변수는 시크릿"이라는 플래그를 추가해 body 리댁션에도 반영한다.
+**응답 리댁션의 핵심 제약**: 로그인류 API가 응답 body로 토큰을 돌려주면 그 토큰은 이후 스텝이 `PREV_RESPONSE`로 참조해 헤더에 넣을 수 있어야 한다. 따라서 리댁션은 **이력에 저장되는 사본에만** 적용하고, **프론트로 반환되는 실시간 응답은 전체를 유지**한다. (실시간 화면은 실행 당사자만 보고, URL로 공유되는 것은 리댁션된 JSONL 이력이다.)
+
+필드명 기반 리댁션이 놓치는 경우(비표준 필드명 등)에 대비해, 실사용 단계에서는 변수 바인딩 시점의 "이 변수는 시크릿" 플래그로 명시적 마스킹을 보완한다.
 
 ---
 
