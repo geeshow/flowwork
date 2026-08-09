@@ -87,8 +87,8 @@ cd web && npm test           # 실행 엔진 14 케이스
 | API 카탈로그 인메모리 인덱싱 (Postman v2.1) | ✅ |
 | 실행 엔진: 값 리졸버 / 템플릿 / 분기 / 실행 루프 / 재처리(resumeFrom) | ✅ |
 | UI: 스텝 카드(상태·JSON 상세), 입력 폼(MANUAL·FIXED_COMBO), 실행/이력 화면 | ✅ |
-| 입력 폼 API_COMBO / DEPENDENT_LOOKUP 카탈로그 조회 연동 | ⏳ 직접 입력으로 대체 |
-| 등록/편집 UI (카탈로그 드릴다운 + 변수 바인딩) | ⏳ 미구현 |
+| 등록/편집 UI (스텝 편집·정렬, 카탈로그 검색, 변수→ValueSource 바인딩, 분기 조건) | ✅ |
+| 입력 폼/정의 API_COMBO / DEPENDENT_LOOKUP 카탈로그 실조회 연동 | ⏳ 정의는 가능, 실행 시 직접 입력으로 대체 |
 | AI 워크플로우 추천, 권한 체크, 외부 Vault 연동 | ⏳ POC 이후 |
 
 ## 현재 상태
