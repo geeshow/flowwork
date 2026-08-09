@@ -65,6 +65,18 @@ export const api = {
   getExecution: (id: string) =>
     req<{ execution_id: string; steps: unknown[] }>(`/api/executions/${id}`),
 
+  // 실행 이력에 남기지 않는 보조 호출 (API_COMBO 옵션 조회 / DEPENDENT_LOOKUP)
+  invoke: (request: ResolvedRequest): Promise<ProxyResult> =>
+    req<ProxyResult>("/api/proxy", {
+      method: "POST",
+      body: JSON.stringify({
+        method: request.method,
+        url: request.url,
+        headers: request.headers,
+        body: request.body ?? null,
+      }),
+    }),
+
   proxy: (payload: {
     execution_id: string;
     step_id: string;

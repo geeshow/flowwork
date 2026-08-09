@@ -1,7 +1,9 @@
-import type { StepInputDef } from "../../types";
+import type { CatalogEntry, StepInputDef } from "../../types";
+import { CatalogPicker } from "./CatalogPicker";
 
 interface Props {
   inputs: StepInputDef[];
+  entries: CatalogEntry[];
   onChange: (inputs: StepInputDef[]) => void;
 }
 
@@ -21,7 +23,7 @@ function blankInput(kind: InputKind, key: string, label: string): StepInputDef {
 }
 
 /** 입력값 정의(4종) 편집 — key/label + kind별 세부 필드. */
-export function InputDefEditor({ inputs, onChange }: Props) {
+export function InputDefEditor({ inputs, entries, onChange }: Props) {
   const update = (i: number, patch: Partial<StepInputDef>) =>
     onChange(inputs.map((inp, idx) => (idx === i ? ({ ...inp, ...patch } as StepInputDef) : inp)));
 
@@ -56,7 +58,7 @@ export function InputDefEditor({ inputs, onChange }: Props) {
             </button>
           </div>
 
-          <KindFields input={inp} onPatch={(patch) => update(i, patch)} />
+          <KindFields input={inp} entries={entries} onPatch={(patch) => update(i, patch)} />
         </div>
       ))}
 
@@ -72,9 +74,11 @@ export function InputDefEditor({ inputs, onChange }: Props) {
 
 function KindFields({
   input,
+  entries,
   onPatch,
 }: {
   input: StepInputDef;
+  entries: CatalogEntry[];
   onPatch: (patch: Partial<StepInputDef>) => void;
 }) {
   switch (input.kind) {
@@ -136,23 +140,41 @@ function KindFields({
 
     case "API_COMBO":
       return (
-        <div className="def-sub grid3">
-          <input placeholder="sourceApiId" value={input.sourceApiId} onChange={(e) => onPatch({ sourceApiId: e.target.value })} />
-          <input placeholder="labelField" value={input.labelField} onChange={(e) => onPatch({ labelField: e.target.value })} />
-          <input placeholder="valueField" value={input.valueField} onChange={(e) => onPatch({ valueField: e.target.value })} />
+        <div className="def-sub def-col">
+          <div className="def-field">
+            <span className="def-field-label">소스 API</span>
+            <CatalogPicker
+              entries={entries}
+              selectedId={input.sourceApiId || null}
+              onSelect={(e) => onPatch({ sourceApiId: e.id })}
+            />
+          </div>
+          <div className="grid2">
+            <input placeholder="labelField (예: name)" value={input.labelField} onChange={(e) => onPatch({ labelField: e.target.value })} />
+            <input placeholder="valueField (예: id)" value={input.valueField} onChange={(e) => onPatch({ valueField: e.target.value })} />
+          </div>
         </div>
       );
 
     case "DEPENDENT_LOOKUP":
       return (
-        <div className="def-sub grid3">
-          <input placeholder="dependsOnKey" value={input.dependsOnKey} onChange={(e) => onPatch({ dependsOnKey: e.target.value })} />
-          <input placeholder="lookupApiId" value={input.lookupApiId} onChange={(e) => onPatch({ lookupApiId: e.target.value })} />
-          <input
-            placeholder="displayFields (콤마)"
-            value={input.displayFields.join(",")}
-            onChange={(e) => onPatch({ displayFields: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
-          />
+        <div className="def-sub def-col">
+          <div className="grid2">
+            <input placeholder="dependsOnKey (의존 입력 key)" value={input.dependsOnKey} onChange={(e) => onPatch({ dependsOnKey: e.target.value })} />
+            <input
+              placeholder="displayFields (콤마, 예: name,phone)"
+              value={input.displayFields.join(",")}
+              onChange={(e) => onPatch({ displayFields: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
+            />
+          </div>
+          <div className="def-field">
+            <span className="def-field-label">조회 API (변수명 = dependsOnKey)</span>
+            <CatalogPicker
+              entries={entries}
+              selectedId={input.lookupApiId || null}
+              onSelect={(e) => onPatch({ lookupApiId: e.id })}
+            />
+          </div>
         </div>
       );
   }

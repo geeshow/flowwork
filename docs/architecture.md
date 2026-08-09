@@ -337,11 +337,13 @@ function useApiComboCache() {
 }
 ```
 
-캐시 Provider는 워크플로우 실행 화면 최상단(`WorkflowRunner`)에 배치해, 워크플로우 세션이 바뀌면 캐시도 자연히 초기화되도록 한다.
+캐시 Provider는 워크플로우 실행 화면 최상단(`WorkflowRunner`)에 배치해, 워크플로우 세션이 바뀌면 캐시도 자연히 초기화되도록 한다. 캐시 핵심 로직(TTL + in-flight 공유)은 React와 무관한 `ComboCache` 클래스로 분리해 단독 테스트하고, `ApiComboProvider`가 이를 감싼다.
+
+> **소스 API 호출 경로**: 위 스케치는 전용 엔드포인트 `/api/catalog/invoke/{id}`를 가정했지만, 실제 구현은 **템플릿 리졸브를 프론트 한 곳에 유지**하기 위해 프론트가 소스 API의 Postman 템플릿을 `resolveTemplate`로 조립한 뒤 `execution_id` 없이 `/api/proxy`를 호출한다. 서버는 `execution_id`가 없으면 SSRF/시크릿 처리만 하고 **실행 이력에는 남기지 않는다**(콤보/조회는 워크플로우 스텝이 아니므로). 파이썬에 템플릿 리졸브를 중복 구현하지 않는 것이 목적이다.
 
 ### 5.4 DEPENDENT_LOOKUP — 조회 전용
 
-사용자에게 값을 두 번 입력받지 않는다. 의존 필드(예: 고객 ID) 입력이 바뀌면 debounce 후 조회 API를 호출하고, **조회 성공 시 그 결과를 스텝 입력값으로 바로 확정**한다. 화면에는 조회된 이름/전화번호 등 부가정보만 참고용으로 표시한다.
+사용자에게 값을 두 번 입력받지 않는다. 의존 필드(예: 고객 ID) 입력이 바뀌면 debounce(약 400ms) 후 조회 API를 호출하고, **조회 성공 시 그 결과를 스텝 입력값으로 바로 확정**한다. 화면에는 조회된 이름/전화번호 등 부가정보(`displayFields`)만 참고용으로 표시한다. 의존값은 조회 API 템플릿의 `{{dependsOnKey}}` 변수에 채워지는 규약(변수명 = `dependsOnKey`)을 따른다.
 
 ---
 

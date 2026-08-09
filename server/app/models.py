@@ -14,8 +14,9 @@ from pydantic import BaseModel, Field
 # 프록시
 # ---------------------------------------------------------------------------
 class ProxyRequest(BaseModel):
-    execution_id: str
-    step_id: str
+    # execution_id가 없으면(콤보/의존조회 같은 UI 보조 호출) 이력에 남기지 않는다.
+    execution_id: str | None = None
+    step_id: str | None = None
     workflow_id: str | None = None
     method: str
     url: str
@@ -24,7 +25,7 @@ class ProxyRequest(BaseModel):
 
 
 class ProxyResponse(BaseModel):
-    step_id: str
+    step_id: str | None = None
     request: dict[str, Any]
     response: dict[str, Any]
     elapsed_ms: int

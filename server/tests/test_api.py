@@ -75,6 +75,30 @@ def test_execution_not_found(client):
     assert client.get("/api/executions/nope").status_code == 404
 
 
+def test_proxy_without_execution_id_does_not_log(client, monkeypatch):
+    class FakeResp:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {"data": [{"id": "C1"}]}
+
+    async def fake_request(self, method, url, **kw):
+        return FakeResp()
+
+    monkeypatch.setattr("httpx.AsyncClient.request", fake_request)
+
+    before = len(client.get("/api/executions").json()["executions"])
+    r = client.post(
+        "/api/proxy",
+        json={"method": "GET", "url": "http://localhost:9100/api/customers"},
+    )
+    assert r.status_code == 200
+    assert r.json()["response"]["body"] == {"data": [{"id": "C1"}]}
+    after = len(client.get("/api/executions").json()["executions"])
+    assert after == before  # 이력에 남지 않음
+
+
 def test_proxy_returns_full_body_but_stores_redacted(client, monkeypatch):
     class FakeResp:
         status_code = 200

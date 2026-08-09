@@ -12,6 +12,7 @@ import type {
   StepInputDef,
   Workflow,
 } from "../types";
+import { ApiComboProvider } from "./ApiComboProvider";
 import { StepCard } from "./StepCard";
 import { StepInputForm } from "./StepInputForm";
 
@@ -24,6 +25,7 @@ export function WorkflowRunner({ workflow, onOpenExecution }: Props) {
   const [catalog, setCatalog] = useState<CatalogEntry[]>([]);
   const [env, setEnv] = useState<EnvironmentValues>({});
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
 
   const [values, setValues] = useState<Record<string, Primitive>>({});
   const [states, setStates] = useState<Map<string, StepExecutionState>>(new Map());
@@ -37,6 +39,7 @@ export function WorkflowRunner({ workflow, onOpenExecution }: Props) {
         if (!alive) return;
         setCatalog(cat.results);
         setEnv(envs);
+        setLoaded(true);
       })
       .catch((e) => alive && setLoadError((e as Error).message));
     return () => {
@@ -82,7 +85,16 @@ export function WorkflowRunner({ workflow, onOpenExecution }: Props) {
     }
   }
 
+  if (!loaded) {
+    return loadError ? (
+      <div className="error-banner">{loadError}</div>
+    ) : (
+      <p className="muted">카탈로그 불러오는 중…</p>
+    );
+  }
+
   return (
+    <ApiComboProvider entries={catalog} env={env}>
     <div className="runner">
       <header className="runner-head">
         <div>
@@ -126,5 +138,6 @@ export function WorkflowRunner({ workflow, onOpenExecution }: Props) {
         </div>
       ) : null}
     </div>
+    </ApiComboProvider>
   );
 }

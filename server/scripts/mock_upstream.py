@@ -18,6 +18,25 @@ _SETTLEMENTS = {
     "C2": {"settlementId": "S-1002", "status": "CLOSED", "amount": 0},
 }
 
+# 고객 마스터 (API_COMBO / DEPENDENT_LOOKUP 데모용)
+_CUSTOMERS = {
+    "C1": {"id": "C1", "name": "김철수", "phone": "010-1111-2222"},
+    "C2": {"id": "C2", "name": "이영희", "phone": "010-3333-4444"},
+}
+
+
+@app.get("/payments/api/customers")
+async def list_customers():
+    return {"data": list(_CUSTOMERS.values())}
+
+
+@app.get("/payments/api/customers/{customer_id}")
+async def get_customer(customer_id: str):
+    data = _CUSTOMERS.get(customer_id)
+    if data is None:
+        return {"data": None}
+    return {"data": data}
+
 
 @app.get("/payments/api/customers/{customer_id}/settlement")
 async def get_settlement(customer_id: str):

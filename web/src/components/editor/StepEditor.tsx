@@ -103,7 +103,11 @@ export function StepEditor({
 
       <div className="step-section">
         <h4>입력값 정의</h4>
-        <InputDefEditor inputs={step.inputs} onChange={(inputs) => onChange({ ...step, inputs })} />
+        <InputDefEditor
+          inputs={step.inputs}
+          entries={entries}
+          onChange={(inputs) => onChange({ ...step, inputs })}
+        />
       </div>
 
       <div className="step-section">

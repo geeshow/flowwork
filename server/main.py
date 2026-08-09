@@ -90,13 +90,15 @@ async def proxy_call(req: ProxyRequest) -> ProxyResponse:
         elapsed_ms=int((time.time() - start) * 1000),
         timestamp=time.time(),
     )
-    # 이력(JSONL, URL 공유)에는 응답 body도 리댁션한 사본을 저장
-    stored = {
-        **log_entry.model_dump(),
-        "response": redact_response(full_response),
-        "workflow_id": req.workflow_id,
-    }
-    await storage.append_execution_log(req.execution_id, stored)
+    # execution_id가 있을 때만 이력에 append (콤보/의존조회 보조 호출은 로깅 생략).
+    # 이력(JSONL, URL 공유)에는 응답 body도 리댁션한 사본을 저장.
+    if req.execution_id:
+        stored = {
+            **log_entry.model_dump(),
+            "response": redact_response(full_response),
+            "workflow_id": req.workflow_id,
+        }
+        await storage.append_execution_log(req.execution_id, stored)
     return log_entry
 
 
