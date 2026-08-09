@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { api, type WorkflowSummary } from "./api/client";
 import { ExecutionDetail, ExecutionList } from "./components/HistoryView";
@@ -38,6 +38,8 @@ export default function App() {
     location.hash = hash;
   };
 
+  const navHistoryActive = route.view === "history" || route.view === "execution";
+
   return (
     <div className="app">
       <nav className="topbar">
@@ -45,32 +47,34 @@ export default function App() {
           flowwork
         </button>
         <div className="nav-links">
-          <button className={route.view === "workflows" ? "active" : ""} onClick={() => go("#/")}>
+          <button className={route.view === "workflows" || route.view === "run" ? "active" : ""} onClick={() => go("#/")}>
             워크플로우
           </button>
-          <button
-            className={route.view === "history" || route.view === "execution" ? "active" : ""}
-            onClick={() => go("#/history")}
-          >
+          <button className={navHistoryActive ? "active" : ""} onClick={() => go("#/history")}>
             실행 이력
           </button>
         </div>
       </nav>
 
       <main className="content">
-        {route.view === "workflows" ? (
-          <WorkflowsPage
+        {route.view === "workflows" || route.view === "run" ? (
+          <WorkflowLayout
+            activeId={route.view === "run" ? route.id : undefined}
             onRun={(i) => go(`#/run/${i}`)}
-            onEdit={(i) => go(`#/edit/${i}`)}
             onNew={(domain) => go(domain ? `#/new/${encodeURIComponent(domain)}` : "#/new")}
-          />
-        ) : null}
-        {route.view === "run" ? (
-          <RunPage
-            id={route.id}
-            onOpenExecution={(id) => go(`#/executions/${id}`)}
-            onEdit={(i) => go(`#/edit/${i}`)}
-          />
+          >
+            {route.view === "run" ? (
+              <RunDetail
+                id={route.id}
+                onOpenExecution={(id) => go(`#/executions/${id}`)}
+                onEdit={(i) => go(`#/edit/${i}`)}
+              />
+            ) : (
+              <div className="detail-empty">
+                <p className="muted">왼쪽에서 워크플로우를 선택해 실행하거나, "새 워크플로우"로 등록하세요.</p>
+              </div>
+            )}
+          </WorkflowLayout>
         ) : null}
         {route.view === "new" ? (
           <WorkflowEditor
@@ -117,18 +121,26 @@ function orderGroups(groups: string[]): string[] {
   return [...known, ...rest];
 }
 
-function WorkflowsPage({
+/**
+ * 워크플로우 목록(도메인 탭 + 업무별 목록)을 좌측 사이드바에 고정으로 두고,
+ * 우측 detail 영역에 실행 화면(children)을 보여주는 master–detail 레이아웃.
+ * 처리(실행) 페이지로 들어가도 도메인/업무 목록이 화면에 유지된다.
+ */
+function WorkflowLayout({
+  activeId,
   onRun,
-  onEdit,
   onNew,
+  children,
 }: {
+  activeId?: string;
   onRun: (id: string) => void;
-  onEdit: (id: string) => void;
   onNew: (domain?: string) => void;
+  children: ReactNode;
 }) {
   const [rows, setRows] = useState<WorkflowSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activeDomain, setActiveDomain] = useState<string | null>(null);
+  const userPicked = useRef(false);
 
   useEffect(() => {
     let alive = true;
@@ -154,14 +166,26 @@ function WorkflowsPage({
     return orderGroups([...byDomain.keys()]).map((d) => ({ domain: d, items: byDomain.get(d)! }));
   }, [rows]);
 
-  useEffect(() => {
-    if (domains.length > 0 && (activeDomain === null || !domains.some((d) => d.domain === activeDomain))) {
-      setActiveDomain(domains[0].domain);
-    }
-  }, [domains, activeDomain]);
+  // 실행 중인 워크플로우가 있으면 그 도메인을 기본 선택 (사용자가 직접 탭을 고르기 전까지)
+  const activeWfDomain = useMemo(
+    () => rows?.find((w) => w.id === activeId)?.domain.normalize("NFC") ?? null,
+    [rows, activeId],
+  );
 
-  if (error) return <div className="error-banner">{error}</div>;
-  if (!rows) return <p className="muted">불러오는 중…</p>;
+  useEffect(() => {
+    if (domains.length === 0) return;
+    setActiveDomain((cur) => {
+      if (userPicked.current && cur && domains.some((d) => d.domain === cur)) return cur;
+      if (activeWfDomain && domains.some((d) => d.domain === activeWfDomain)) return activeWfDomain;
+      if (cur && domains.some((d) => d.domain === cur)) return cur;
+      return domains[0].domain;
+    });
+  }, [domains, activeWfDomain]);
+
+  const pickDomain = (d: string) => {
+    userPicked.current = true;
+    setActiveDomain(d);
+  };
 
   const active = domains.find((d) => d.domain === activeDomain) ?? null;
 
@@ -175,54 +199,64 @@ function WorkflowsPage({
   const tasks = [...byTask.keys()].sort((a, b) => a.localeCompare(b, "ko"));
 
   return (
-    <section>
-      <div className="panel-head">
-        <h2>워크플로우</h2>
-        <button className="primary" onClick={() => onNew(activeDomain ?? undefined)}>
-          + 새 워크플로우
-        </button>
-      </div>
-
-      <div className="group-tabs">
-        {domains.map((d) => (
-          <button
-            key={d.domain}
-            className={`group-tab ${d.domain === activeDomain ? "active" : ""}`}
-            onClick={() => setActiveDomain(d.domain)}
-          >
-            {d.domain}
-            <span className="group-count">{d.items.length}</span>
+    <div className="workspace">
+      <aside className="wf-sidebar">
+        <div className="sidebar-head">
+          <h2>워크플로우</h2>
+          <button className="primary small" onClick={() => onNew(activeDomain ?? undefined)}>
+            + 새로
           </button>
-        ))}
-      </div>
+        </div>
 
-      {tasks.length === 0 ? (
-        <p className="muted">이 도메인에는 아직 등록된 업무가 없습니다. "새 워크플로우"로 추가하세요.</p>
-      ) : (
-        tasks.map((task) => (
-          <div key={task} className="task-group">
-            <h3 className="task-title">{task}</h3>
-            <ul className="wf-list">
-              {byTask.get(task)!.map((w) => (
-                <li key={w.id} className="wf-item">
-                  <button className="wf-row" onClick={() => onRun(w.id)}>
-                    <span className="wf-name">{w.name}</span>
-                    {w.description ? <span className="muted">{w.description}</span> : null}
-                  </button>
-                  <button className="wf-edit" onClick={() => onEdit(w.id)} title="편집">
-                    편집
-                  </button>
-                </li>
-              ))}
-            </ul>
+        {error ? <div className="error-banner">{error}</div> : null}
+
+        <div className="group-tabs">
+          {domains.map((d) => (
+            <button
+              key={d.domain}
+              className={`group-tab ${d.domain === activeDomain ? "active" : ""}`}
+              onClick={() => pickDomain(d.domain)}
+            >
+              {d.domain}
+              <span className="group-count">{d.items.length}</span>
+            </button>
+          ))}
+        </div>
+
+        {!rows ? (
+          <p className="muted">불러오는 중…</p>
+        ) : tasks.length === 0 ? (
+          <p className="muted">이 도메인에는 아직 업무가 없습니다.</p>
+        ) : (
+          <div className="sidebar-list">
+            {tasks.map((task) => (
+              <div key={task} className="task-group">
+                <h3 className="task-title">{task}</h3>
+                <ul className="wf-nav-list">
+                  {byTask.get(task)!.map((w) => (
+                    <li key={w.id}>
+                      <button
+                        className={`wf-nav-item ${w.id === activeId ? "active" : ""}`}
+                        onClick={() => onRun(w.id)}
+                        title={w.description || w.name}
+                      >
+                        {w.name}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
           </div>
-        ))
-      )}
-    </section>
+        )}
+      </aside>
+
+      <div className="wf-detail">{children}</div>
+    </div>
   );
 }
 
-function RunPage({
+function RunDetail({
   id,
   onOpenExecution,
   onEdit,
@@ -237,6 +271,7 @@ function RunPage({
   useEffect(() => {
     let alive = true;
     setWf(null);
+    setError(null);
     api
       .getWorkflow(id)
       .then((w) => alive && setWf(w))
@@ -251,9 +286,9 @@ function RunPage({
   return (
     <>
       <div className="run-topbar">
-        <button className="link" onClick={() => (location.hash = "#/")}>
-          ← 워크플로우 목록
-        </button>
+        <span className="run-crumb muted">
+          {wf.domain} / {wf.task}
+        </span>
         <button className="link" onClick={() => onEdit(id)}>
           편집 →
         </button>
