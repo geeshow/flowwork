@@ -1,0 +1,24 @@
+meta {
+  name: 매도
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{coreBaseUrl}}/accounts/{{accountNo}}/sell
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{authToken}}
+  Content-Type: application/json
+}
+
+body:json {
+  {"password": "{{password}}"}
+}
+
+docs {
+  output: accountNo, status, soldAmount, positions
+}

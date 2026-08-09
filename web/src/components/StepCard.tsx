@@ -3,6 +3,23 @@ import { useState, type ReactNode } from "react";
 import type { StepExecutionState, StepResultView, StepStatus, WorkflowStep } from "../types";
 import { ResultTable } from "./ResultTable";
 
+/**
+ * 스텝 종류 배지/분류 계산.
+ *  - API 스텝: "API" + "부서 > 폴더" (카탈로그 분류)
+ *  - 연결업무 스텝: "연결업무" + "도메인 > 업무 > 업무명" (연결된 워크플로우)
+ */
+export function stepTypeMeta(
+  step: Pick<WorkflowStep, "apiBinding" | "workflowBinding">,
+  resolveWorkflow?: (id: string) => { domain: string; task: string; name: string } | undefined,
+): { typeLabel: "API" | "연결업무"; category: string } {
+  if (step.workflowBinding) {
+    const w = resolveWorkflow?.(step.workflowBinding.ref.id);
+    return { typeLabel: "연결업무", category: w ? `${w.domain} > ${w.task} > ${w.name}` : "" };
+  }
+  const ce = step.apiBinding?.catalogEntry;
+  return { typeLabel: "API", category: ce ? [ce.department, ...ce.itemPath].join(" > ") : "" };
+}
+
 const STATUS_META: Record<StepStatus, { icon: string; label: string; cls: string }> = {
   PENDING: { icon: "○", label: "대기", cls: "pending" },
   RUNNING: { icon: "◍", label: "실행 중", cls: "running" },
@@ -18,6 +35,10 @@ interface Props {
   accentColor?: string | null;
   // 응답 표시 방식 (표/원본 + 컬럼). 없으면 원본 JSON.
   resultView?: StepResultView;
+  // 스텝 종류 배지: "API" 또는 "연결업무"
+  typeLabel?: "API" | "연결업무";
+  // 분류 경로: API는 "부서 > 폴더", 연결업무는 "도메인 > 업무 > 업무명"
+  category?: string;
   // 카드 하단 슬롯 — 중간 입력 폼 등. 있으면 카드를 펼친 채로 렌더한다.
   footer?: ReactNode;
 }
@@ -26,7 +47,7 @@ interface Props {
  * 스텝 카드 — 실행 상태를 색/아이콘으로 표시하고, 클릭 시 request/response 전체를
  * JSON 뷰어로 펼친다. 실행 화면과 히스토리 상세가 동일 컴포넌트를 재사용한다.
  */
-export function StepCard({ step, state, accentColor, resultView, footer }: Props) {
+export function StepCard({ step, state, accentColor, resultView, typeLabel, category, footer }: Props) {
   const [open, setOpen] = useState(false);
   // 표 모드로 설정돼 있으면 표를 기본으로, 필요 시 원본 JSON으로 토글
   const [rawResp, setRawResp] = useState(false);
@@ -55,7 +76,15 @@ export function StepCard({ step, state, accentColor, resultView, footer }: Props
         <span className="step-order">{step.order}</span>
         <span className="step-name">
           {accentColor ? <span className="task-bullet" style={{ background: accentColor }} /> : null}
-          {step.name || `스텝 ${step.order}`}
+          <span className="step-name-text">
+            <span className="step-name-row">
+              {typeLabel ? (
+                <span className={`step-type-badge ${typeLabel === "API" ? "api" : "wf"}`}>{typeLabel}</span>
+              ) : null}
+              <span>{step.name || `스텝 ${step.order}`}</span>
+            </span>
+            {category ? <span className="step-category">{category}</span> : null}
+          </span>
         </span>
         <span className={`step-status ${meta.cls}`}>
           <span className="step-icon">{meta.icon}</span> {meta.label}

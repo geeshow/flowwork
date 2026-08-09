@@ -357,6 +357,141 @@ def _account_detail() -> dict:
     }
 
 
+def _sell() -> dict:
+    """매도: 계좌번호와 비밀번호로 보유 포지션을 전량 매도한다 (매매 도메인)."""
+    return {
+        "id": "sell",
+        "domain": "매매",
+        "task": "매도",
+        "name": "매도",
+        "description": "계좌번호와 비밀번호로 보유 포지션을 전량 매도한다.",
+        "baseInputs": [
+            {"kind": "MANUAL", "key": "accountNo", "label": "계좌번호", "valueType": "string"},
+            {"kind": "MANUAL", "key": "password", "label": "비밀번호", "valueType": "password"},
+        ],
+        "steps": [
+            {
+                "id": "do_sell",
+                "order": 1,
+                "name": "매도",
+                "apiBinding": {
+                    "catalogEntry": {"department": "core", "collectionFile": "core", "itemPath": ["매매"], "name": "매도"},
+                    "variableBindings": {
+                        "accountNo": {"kind": "USER_INPUT", "inputKey": "accountNo"},
+                        "password": {"kind": "USER_INPUT", "inputKey": "password"},
+                    },
+                },
+                "stopOnFailure": True,
+                "resultView": {"mode": "TABLE", "columns": ["accountNo", "status", "soldAmount", "positions"]},
+            }
+        ],
+    }
+
+
+def _force_settle() -> dict:
+    """강제 정산: 계좌번호로 미정산 잔액을 강제 정산한다 (정산 도메인)."""
+    return {
+        "id": "force_settle",
+        "domain": "정산",
+        "task": "강제정산",
+        "name": "강제 정산",
+        "description": "계좌번호로 미정산 잔액을 강제 정산한다.",
+        "baseInputs": [
+            {"kind": "MANUAL", "key": "accountNo", "label": "계좌번호", "valueType": "string"},
+        ],
+        "steps": [
+            {
+                "id": "do_settle",
+                "order": 1,
+                "name": "강제 정산",
+                "apiBinding": {
+                    "catalogEntry": {"department": "core", "collectionFile": "core", "itemPath": ["정산"], "name": "강제 정산"},
+                    "variableBindings": {"accountNo": {"kind": "USER_INPUT", "inputKey": "accountNo"}},
+                },
+                "stopOnFailure": True,
+                "resultView": {"mode": "TABLE", "columns": ["accountNo", "settlementId", "status", "amount"]},
+            }
+        ],
+    }
+
+
+def _account_force_close() -> dict:
+    """계좌 강제 폐쇄: 계좌 폐쇄와 동일한 flow(사용자조회→계좌선택)에, 중간에 두 업무
+    (매도·강제 정산)를 연결해 실행한 뒤 계좌를 폐쇄한다.
+
+    - app_user_id → 사용자조회로 sec_user_id 확정 → 계좌목록 콤보로 accountNo 선택
+    - Step1 매도(업무 연결)   : accountNo + password
+    - Step2 강제 정산(업무 연결): accountNo
+    - Step3 계좌 폐쇄(API)     : accountNo
+    """
+    return {
+        "id": "account_force_close",
+        "domain": "계좌",
+        "task": "폐쇄",
+        "name": "계좌 강제 폐쇄",
+        "description": "사용자·계좌를 확인한 뒤 매도와 강제 정산을 거쳐 계좌를 강제 폐쇄한다.",
+        "baseInputs": [
+            {"kind": "MANUAL", "key": "app_user_id", "label": "앱 사용자 ID", "valueType": "string"},
+            {
+                "kind": "DEPENDENT_LOOKUP",
+                "key": "sec_user_id",
+                "label": "보안 사용자 ID",
+                "dependsOnKey": "app_user_id",
+                "lookupApiId": _catalog_id("사용자 정보 조회 (앱ID)"),
+                "displayFields": ["name", "sec_user_id"],
+                "valueField": "sec_user_id",
+            },
+            {
+                "kind": "DEPENDENT_COMBO",
+                "key": "accountNo",
+                "label": "폐쇄할 계좌",
+                "dependsOnKey": "sec_user_id",
+                "lookupApiId": _catalog_id("계좌 목록 조회 (보안ID)"),
+                "labelField": "accountType",
+                "valueField": "accountNo",
+            },
+            {"kind": "MANUAL", "key": "password", "label": "거래 비밀번호", "valueType": "password"},
+        ],
+        "steps": [
+            {
+                "id": "sell_step",
+                "order": 1,
+                "name": "매도",
+                "workflowBinding": {
+                    "ref": {"id": "sell"},
+                    "inputMappings": {
+                        "accountNo": {"kind": "USER_INPUT", "inputKey": "accountNo"},
+                        "password": {"kind": "USER_INPUT", "inputKey": "password"},
+                    },
+                },
+            },
+            {
+                "id": "settle_step",
+                "order": 2,
+                "name": "강제 정산",
+                "workflowBinding": {
+                    "ref": {"id": "force_settle"},
+                    "inputMappings": {"accountNo": {"kind": "USER_INPUT", "inputKey": "accountNo"}},
+                },
+            },
+            {
+                "id": "close_step",
+                "order": 3,
+                "name": "계좌 폐쇄",
+                "apiBinding": {
+                    "catalogEntry": {"department": "core", "collectionFile": "core", "itemPath": ["계좌"], "name": "계좌 폐쇄"},
+                    "variableBindings": {
+                        "accountNo": {"kind": "USER_INPUT", "inputKey": "accountNo"},
+                        "reason": {"kind": "FIXED", "value": "강제 폐쇄"},
+                    },
+                },
+                "stopOnFailure": True,
+                "resultView": {"mode": "TABLE", "columns": ["accountNo", "status", "closedAt", "reason"]},
+            },
+        ],
+    }
+
+
 def _placeholder(wf_id: str, domain: str, task: str, name: str) -> dict:
     return {
         "id": wf_id,
@@ -394,6 +529,9 @@ def main() -> None:
         _account_withdraw_mid(),
         _account_list(),
         _account_detail(),
+        _sell(),
+        _force_settle(),
+        _account_force_close(),
         *PLACEHOLDERS,
     ]:
         _write(wf)

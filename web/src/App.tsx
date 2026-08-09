@@ -184,7 +184,7 @@ export default function App() {
 }
 
 // 도메인 표시 순서 (미지정 도메인은 이 뒤에 가나다순으로 붙는다)
-const GROUP_ORDER = ["계좌", "계정", "매매", "인증", "마케팅", "상품"];
+const GROUP_ORDER = ["계좌", "계정", "매매", "정산", "인증", "마케팅", "상품"];
 
 function orderGroups(groups: string[]): string[] {
   const known = GROUP_ORDER.filter((g) => groups.includes(g));

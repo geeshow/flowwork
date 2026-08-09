@@ -574,6 +574,42 @@ button.link {
 .step-name {
   font-weight: 600;
   flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.step-name-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.step-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.step-type-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 1px 7px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.step-type-badge.api {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+.step-type-badge.wf {
+  color: #a78bfa;
+  background: rgba(167, 139, 250, 0.16);
+}
+.step-category {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--muted);
 }
 .step-status {
   font-size: 12px;

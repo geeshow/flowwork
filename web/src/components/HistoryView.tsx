@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api, type ExecutionSummary, type WorkflowSummary } from "../api/client";
 import { colorForDomain } from "../domainPalette";
 import type { StepExecutionState, Workflow } from "../types";
-import { StepCard } from "./StepCard";
+import { StepCard, stepTypeMeta } from "./StepCard";
 
 interface LogEntry {
   step_id?: string;
@@ -48,14 +48,16 @@ function overallStatus(entries: LogEntry[]): "SUCCESS" | "FAILED" {
  */
 export function ExecutionDetail({ executionId }: { executionId: string }) {
   const [entries, setEntries] = useState<LogEntry[] | null>(null);
-  const [wf, setWf] = useState<Workflow | null>(null);
+  const [wfById, setWfById] = useState<Map<string, Workflow>>(new Map());
+  const [topWfId, setTopWfId] = useState<string | undefined>(undefined);
   const [colors, setColors] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
     setEntries(null);
-    setWf(null);
+    setWfById(new Map());
+    setTopWfId(undefined);
     api
       .getExecution(executionId)
       .then(async (r) => {
@@ -63,15 +65,23 @@ export function ExecutionDetail({ executionId }: { executionId: string }) {
         const steps = r.steps as LogEntry[];
         setEntries(steps);
         api.getDomainColors().then((c) => alive && setColors(c)).catch(() => {});
-        const wfId = steps[0]?.workflow_id;
-        if (wfId) {
-          try {
-            const w = await api.getWorkflow(wfId);
-            if (alive) setWf(w);
-          } catch {
-            /* 삭제/변경된 워크플로우 — 이름/표 없이 렌더 */
-          }
-        }
+        // 최상위 워크플로우: 입력값 엔트리에 기록된 id 우선(첫 스텝이 하위 업무 연결일 수 있음)
+        const inputs = steps.find((e) => e.kind === "inputs");
+        const firstStep = steps.find((e) => e.step_id);
+        const top = inputs?.workflow_id ?? firstStep?.workflow_id;
+        if (alive) setTopWfId(top);
+        // 로그에 등장하는 모든 워크플로우 로드 (연결된 하위 업무 포함) → 스텝 이름/결과표 복원
+        const ids = [...new Set(steps.map((e) => e.workflow_id).filter(Boolean) as string[])];
+        if (top && !ids.includes(top)) ids.push(top);
+        const loaded = await Promise.all(
+          ids.map((id) =>
+            api
+              .getWorkflow(id)
+              .then((w) => [id, w] as const)
+              .catch(() => null),
+          ),
+        );
+        if (alive) setWfById(new Map(loaded.filter((x): x is readonly [string, Workflow] => x != null)));
       })
       .catch((e) => alive && setError((e as Error).message));
     return () => {
@@ -79,14 +89,20 @@ export function ExecutionDetail({ executionId }: { executionId: string }) {
     };
   }, [executionId]);
 
-  const stepById = useMemo(() => new Map((wf?.steps ?? []).map((s) => [s.id, s])), [wf]);
-  // 입력값 key → label (기본 입력값 + 각 스텝의 중간 입력)
+  const topWf = topWfId ? wfById.get(topWfId) : undefined;
+  // 각 로그 엔트리를 자기 워크플로우의 스텝(리프 id)으로 해석하는 헬퍼
+  const stepFor = (entry: LogEntry) => {
+    const wf = entry.workflow_id ? wfById.get(entry.workflow_id) : undefined;
+    const leafId = entry.step_id?.split("/").pop();
+    return wf?.steps.find((s) => s.id === leafId);
+  };
+  // 입력값 key → label (최상위 기본 입력값 + 모든 워크플로우의 중간 입력)
   const inputLabels = useMemo(() => {
     const m = new Map<string, string>();
-    for (const b of wf?.baseInputs ?? []) m.set(b.key, b.label);
-    for (const s of wf?.steps ?? []) for (const mi of s.midInputs ?? []) m.set(mi.key, mi.label);
+    for (const b of topWf?.baseInputs ?? []) m.set(b.key, b.label);
+    for (const w of wfById.values()) for (const s of w.steps) for (const mi of s.midInputs ?? []) m.set(mi.key, mi.label);
     return m;
-  }, [wf]);
+  }, [topWf, wfById]);
 
   if (error) return <div className="error-banner">{error}</div>;
   if (!entries) return <p className="muted">불러오는 중…</p>;
@@ -95,7 +111,7 @@ export function ExecutionDetail({ executionId }: { executionId: string }) {
   const inputsEntry = entries.find((e) => e.kind === "inputs");
   const status = overallStatus(stepEntries);
   const startedAt = stepEntries[0]?.timestamp;
-  const color = wf ? colorForDomain(wf.domain.normalize("NFC"), colors) : "var(--muted)";
+  const color = topWf ? colorForDomain(topWf.domain.normalize("NFC"), colors) : "var(--muted)";
   const shareUrl = `${location.origin}/executions/${executionId}`;
 
   return (
@@ -103,16 +119,16 @@ export function ExecutionDetail({ executionId }: { executionId: string }) {
       <div className="exec-detail-head">
         <div className="crumb">
           <span className="task-bullet lg" style={{ background: color }} />
-          {wf ? (
+          {topWf ? (
             <>
-              <span className="muted">{wf.domain}</span>
+              <span className="muted">{topWf.domain}</span>
               <span className="muted">/</span>
-              <span className="muted">{wf.task}</span>
+              <span className="muted">{topWf.task}</span>
               <span className="muted">/</span>
-              <h2>{wf.name}</h2>
+              <h2>{topWf.name}</h2>
             </>
           ) : (
-            <h2>{entries[0]?.workflow_id ?? "실행 결과"}</h2>
+            <h2>{topWfId ?? "실행 결과"}</h2>
           )}
           <span className={`status-badge ${status.toLowerCase()}`}>
             {status === "SUCCESS" ? "성공" : "실패"}
@@ -150,13 +166,21 @@ export function ExecutionDetail({ executionId }: { executionId: string }) {
 
       <div className="step-list">
         {stepEntries.map((entry, i) => {
-          const step = stepById.get(entry.step_id!);
+          const step = stepFor(entry);
+          const meta = step
+            ? stepTypeMeta(step, (id) => {
+                const w = wfById.get(id);
+                return w ? { domain: w.domain, task: w.task, name: w.name } : undefined;
+              })
+            : undefined;
           return (
             <StepCard
               key={`${entry.step_id}-${i}`}
               step={{ id: entry.step_id!, order: i + 1, name: step?.name ?? entry.step_id! }}
               state={toStepState(entry)}
               resultView={step?.resultView}
+              typeLabel={meta?.typeLabel}
+              category={meta?.category}
             />
           );
         })}

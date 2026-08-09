@@ -64,13 +64,17 @@ def list_executions() -> list[dict[str, Any]]:
             continue
         statuses = [s.get("response", {}).get("status") for s in step_lines]
         overall = "SUCCESS" if all(s and 200 <= s < 300 for s in statuses) else "FAILED"
+        # 워크플로우 귀속: 입력값 엔트리에 최상위 워크플로우 id가 기록돼 있으면 그것을 쓴다
+        # (다른 업무 연결 스텝이 첫 스텝이면 step_lines[0]은 하위 워크플로우 id이므로).
+        inputs_line = next((l for l in lines if l.get("kind") == "inputs"), None)
+        top_wf = (inputs_line and inputs_line.get("workflow_id")) or step_lines[0].get("workflow_id")
         out.append(
             {
                 "execution_id": path.stem,
                 "step_count": len(step_lines),
                 "overall_status": overall,
                 "started_at": step_lines[0].get("timestamp"),
-                "workflow_id": step_lines[0].get("workflow_id"),
+                "workflow_id": top_wf,
             }
         )
     out.sort(key=lambda e: e.get("started_at") or 0, reverse=True)

@@ -205,6 +205,44 @@ async def withdraw(account_no: str, body: WithdrawBody):
     }
 
 
+class SellBody(BaseModel):
+    password: str | None = None
+
+
+@app.post("/core/accounts/{account_no}/sell")
+async def sell_all(account_no: str, body: SellBody):
+    """매도 — 계좌번호+비밀번호로 보유 포지션을 전량 매도한다 (데모)."""
+    account = _find_account(account_no)
+    if account is None:
+        return {"data": {"accountNo": account_no, "status": "FAILED", "reason": "계좌 없음"}}
+    if body.password != _DEMO_WITHDRAW_PASSWORD:
+        return {"data": {"accountNo": account_no, "status": "FAILED", "reason": "비밀번호 불일치"}}
+    return {
+        "data": {
+            "accountNo": account_no,
+            "status": "SOLD",
+            "soldAmount": account["balance"]["amount"],
+            "positions": 3,
+        }
+    }
+
+
+@app.post("/core/accounts/{account_no}/settle")
+async def force_settle(account_no: str):
+    """강제 정산 — 계좌번호로 미정산 잔액을 강제 정산한다 (데모)."""
+    account = _find_account(account_no)
+    if account is None:
+        return {"data": {"accountNo": account_no, "status": "FAILED", "reason": "계좌 없음"}}
+    return {
+        "data": {
+            "accountNo": account_no,
+            "settlementId": f"FS-{account_no[-3:]}",
+            "status": "SETTLED",
+            "amount": 0,
+        }
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
 

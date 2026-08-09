@@ -14,7 +14,7 @@ import type {
   WorkflowStep,
 } from "../types";
 import { ApiComboProvider } from "./ApiComboProvider";
-import { StepCard } from "./StepCard";
+import { StepCard, stepTypeMeta } from "./StepCard";
 import { StepInputForm } from "./StepInputForm";
 
 interface Props {
@@ -202,16 +202,24 @@ export function WorkflowRunner({ workflow, onOpenExecution }: Props) {
       <section className="panel">
         <h3>스텝</h3>
         <div className="step-list">
-          {orderedSteps.map((step) => (
-            <StepCard
-              key={step.id}
-              step={step}
-              state={states.get(step.id)}
-              accentColor={accentFor(step.id)}
-              resultView={step.resultView}
-              footer={midPrompt?.uid === step.id ? renderMidForm() : null}
-            />
-          ))}
+          {orderedSteps.map((step) => {
+            const { typeLabel, category } = stepTypeMeta(step, (id) => {
+              const w = summaries.find((s) => s.id === id);
+              return w ? { domain: w.domain, task: w.task, name: w.name } : undefined;
+            });
+            return (
+              <StepCard
+                key={step.id}
+                step={step}
+                state={states.get(step.id)}
+                accentColor={accentFor(step.id)}
+                resultView={step.resultView}
+                typeLabel={typeLabel}
+                category={category}
+                footer={midPrompt?.uid === step.id ? renderMidForm() : null}
+              />
+            );
+          })}
         </div>
       </section>
 
