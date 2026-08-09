@@ -93,6 +93,17 @@ _ACCOUNTS = {
     ],
 }
 
+# sec_user_id로 조회하는 계좌 목록 (계좌번호/이름/계좌타입/계좌상태/가입일자/해지일자)
+_SEC_ACCOUNTS = {
+    "SEC-8F3A21": [
+        {"accountNo": "110-222-333", "name": "김철수", "accountType": "펀드", "status": "ACTIVE", "openedAt": "2021-03-15", "closedAt": None},
+        {"accountNo": "110-444-555", "name": "김철수", "accountType": "신탁", "status": "CLOSED", "openedAt": "2019-07-01", "closedAt": "2023-02-10"},
+    ],
+    "SEC-2B7C90": [
+        {"accountNo": "220-666-777", "name": "이영희", "accountType": "연금", "status": "ACTIVE", "openedAt": "2022-11-20", "closedAt": None},
+    ],
+}
+
 
 @app.get("/core/agreements/codes")
 async def list_agreement_codes():
@@ -115,6 +126,12 @@ async def list_accounts(app_user_id: str, status: str | None = None):
     if status:
         accounts = [a for a in accounts if a["status"] == status]
     return {"data": accounts}
+
+
+@app.get("/core/accounts")
+async def list_accounts_by_sec(sec_user_id: str | None = None):
+    """sec_user_id로 계좌 목록 조회 (계좌번호/이름/계좌타입/계좌상태/가입일자/해지일자)."""
+    return {"data": _SEC_ACCOUNTS.get(sec_user_id, [])}
 
 
 if __name__ == "__main__":

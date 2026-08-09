@@ -164,9 +164,13 @@ function DependentLookupInput({
         .then((row) => {
           if (!alive) return;
           if (row) {
+            // valueField가 있으면 조회 결과의 그 필드를, 없으면 의존값을 확정값으로.
+            const picked = def.valueField
+              ? ((row[def.valueField] as Primitive) ?? null)
+              : dependValue;
             setInfo(row);
             setStatus("ok");
-            onChange(def.key, dependValue); // 조회 성공 시 값 자동 확정
+            onChange(def.key, picked); // 조회 성공 시 값 자동 확정
           } else {
             setInfo(null);
             setStatus("fail");
@@ -193,7 +197,11 @@ function DependentLookupInput({
       <div className="dependent-value">
         <code>{def.dependsOnKey}</code> = {dependValue == null || dependValue === "" ? <span className="muted">미입력</span> : String(dependValue)}
         {status === "loading" ? <span className="hint"> 조회 중…</span> : null}
-        {status === "ok" ? <span className="hint ok-text"> ✓ 확정</span> : null}
+        {status === "ok" ? (
+          <span className="hint ok-text">
+            {" "}✓ {def.valueField ? <><code>{def.key}</code> = {value == null ? "-" : String(value)}</> : "확정"}
+          </span>
+        ) : null}
         {status === "fail" ? <span className="hint error-text"> 조회 실패</span> : null}
       </div>
       {status === "ok" && info ? (

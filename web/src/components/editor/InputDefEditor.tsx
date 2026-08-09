@@ -18,7 +18,7 @@ function blankInput(kind: InputKind, key: string, label: string): StepInputDef {
     case "API_COMBO":
       return { kind, key, label, sourceApiId: "", labelField: "", valueField: "" };
     case "DEPENDENT_LOOKUP":
-      return { kind, key, label, dependsOnKey: "", lookupApiId: "", displayFields: [] };
+      return { kind, key, label, dependsOnKey: "", lookupApiId: "", displayFields: [], valueField: "" };
   }
 }
 
@@ -162,11 +162,16 @@ function KindFields({
           <div className="grid2">
             <input placeholder="dependsOnKey (의존 입력 key)" value={input.dependsOnKey} onChange={(e) => onPatch({ dependsOnKey: e.target.value })} />
             <input
-              placeholder="displayFields (콤마, 예: name,phone)"
-              value={input.displayFields.join(",")}
-              onChange={(e) => onPatch({ displayFields: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
+              placeholder="valueField (확정 값 필드, 예: sec_user_id)"
+              value={input.valueField ?? ""}
+              onChange={(e) => onPatch({ valueField: e.target.value })}
             />
           </div>
+          <input
+            placeholder="displayFields (콤마, 예: name,phone)"
+            value={input.displayFields.join(",")}
+            onChange={(e) => onPatch({ displayFields: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
+          />
           <div className="def-field">
             <span className="def-field-label">조회 API (변수명 = dependsOnKey)</span>
             <CatalogPicker

@@ -29,6 +29,9 @@ export type StepInputDef =
       dependsOnKey: string;
       lookupApiId: string;
       displayFields: string[];
+      // 조회 결과 객체에서 이 필드를 입력값으로 확정한다.
+      // 없으면 의존값(dependsOnKey 값)을 그대로 사용(하위호환).
+      valueField?: string;
     };
 
 // ---------------------------------------------------------------------------

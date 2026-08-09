@@ -14,7 +14,17 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from app import catalog  # noqa: E402
 from app.config import WORKFLOWS_DIR  # noqa: E402
+
+
+def _catalog_id(name: str) -> str:
+    """카탈로그에서 API 이름으로 id(sha1)를 찾는다 (DEPENDENT_LOOKUP.lookupApiId용)."""
+    entries, _ = catalog.build_index()
+    for e in entries:
+        if e.name == name:
+            return e.id
+    raise SystemExit(f"카탈로그에서 '{name}' 항목을 찾을 수 없습니다")
 
 USER_LOOKUP = {
     "id": "user_lookup",
@@ -86,6 +96,48 @@ ACCOUNT_CLOSE = {
 }
 
 
+def _account_list() -> dict:
+    """계좌 목록 조회: app_user_id → (사용자 조회로 sec_user_id 자동 확정) → 계좌 목록 조회."""
+    return {
+        "id": "account_list",
+        "domain": "계좌",
+        "task": "조회",
+        "name": "계좌 목록 조회",
+        "description": "app_user_id로 사용자를 조회해 sec_user_id를 자동 확정하고, 그 계좌 목록을 조회한다.",
+        "baseInputs": [
+            {"kind": "MANUAL", "key": "app_user_id", "label": "앱 사용자 ID", "valueType": "string"},
+            {
+                "kind": "DEPENDENT_LOOKUP",
+                "key": "sec_user_id",
+                "label": "보안 사용자 ID",
+                "dependsOnKey": "app_user_id",
+                "lookupApiId": _catalog_id("사용자 정보 조회"),
+                "displayFields": ["name", "sec_user_id"],
+                "valueField": "sec_user_id",
+            },
+        ],
+        "steps": [
+            {
+                "id": "step_accounts",
+                "order": 1,
+                "name": "계좌 목록 조회 (보안ID)",
+                "apiBinding": {
+                    "catalogEntry": {
+                        "department": "core",
+                        "collectionFile": "core.postman_collection.json",
+                        "itemPath": ["계좌"],
+                        "name": "계좌 목록 조회 (보안ID)",
+                    },
+                    "variableBindings": {
+                        "sec_user_id": {"kind": "USER_INPUT", "inputKey": "sec_user_id"}
+                    },
+                },
+                "stopOnFailure": True,
+            }
+        ],
+    }
+
+
 def _placeholder(wf_id: str, domain: str, task: str, name: str) -> dict:
     return {
         "id": wf_id,
@@ -101,7 +153,6 @@ def _placeholder(wf_id: str, domain: str, task: str, name: str) -> dict:
 PLACEHOLDERS = [
     _placeholder("account_open", "계좌", "개설", "계좌 개설"),
     _placeholder("account_open_resume_reset", "계좌", "개설", "계좌 개설 이어하기 초기화"),
-    _placeholder("account_list", "계좌", "조회", "계좌 목록 조회"),
     _placeholder("fund_balance_reset", "계좌", "초기화", "펀드 잔고 및 약정 초기화"),
     _placeholder("cash_balance_fx_reset", "계좌", "초기화", "출납 잔고 및 환전 내역 초기화"),
     _placeholder("order_fills_lookup", "매매", "체결내역", "주문체결내역 조회"),
@@ -117,7 +168,7 @@ def _write(wf: dict) -> None:
 
 
 def main() -> None:
-    for wf in [USER_LOOKUP, ACCOUNT_CLOSE, *PLACEHOLDERS]:
+    for wf in [USER_LOOKUP, ACCOUNT_CLOSE, _account_list(), *PLACEHOLDERS]:
         _write(wf)
 
 
