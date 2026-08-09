@@ -295,19 +295,12 @@ export function WorkflowEditor({ mode, id, initialDomain, initialTask, onSaved, 
       <section className="panel">
         <div className="panel-head">
           <h3>스텝 ({wf.steps.length})</h3>
-          <button
-            className="link"
-            disabled={!identityReady}
-            onClick={() => setWf({ ...wf, steps: [...wf.steps, newStep()] })}
-          >
-            + 스텝 추가
-          </button>
         </div>
 
         {!identityReady ? (
           <p className="muted">먼저 도메인·업무·이름을 입력하면 스텝을 추가할 수 있습니다.</p>
         ) : wf.steps.length === 0 ? (
-          <p className="muted">스텝이 없습니다. "스텝 추가"로 API를 선택하고 입력을 매핑하세요.</p>
+          <p className="muted">스텝이 없습니다. 아래 "스텝 추가"로 API를 선택하고 입력을 매핑하세요.</p>
         ) : null}
 
         <div className="step-editor-list">
@@ -330,6 +323,15 @@ export function WorkflowEditor({ mode, id, initialDomain, initialTask, onSaved, 
             />
           ))}
         </div>
+
+        {identityReady ? (
+          <button
+            className="add-step-btn"
+            onClick={() => setWf({ ...wf, steps: [...wf.steps, newStep()] })}
+          >
+            + 스텝 추가
+          </button>
+        ) : null}
       </section>
     </div>
   );
