@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+} from "react";
 
 import { api, type WorkflowSummary } from "./api/client";
 import { ExecutionDetail, ExecutionList } from "./components/HistoryView";
@@ -168,6 +175,37 @@ function WorkflowLayout({
   const [error, setError] = useState<string | null>(null);
   // 펼친 도메인 집합. 여러 도메인을 동시에 열어둘 수 있고, 새 선택이 기존 열림을 닫지 않는다.
   const [openDomains, setOpenDomains] = useState<Set<string>>(() => new Set());
+  // 사이드바 크기 조절 / 접기 (localStorage 유지)
+  const [sbWidth, setSbWidth] = useState(() => Number(localStorage.getItem("wf-sb-w")) || 280);
+  const [sbCollapsed, setSbCollapsed] = useState(() => localStorage.getItem("wf-sb-collapsed") === "1");
+  const [resizing, setResizing] = useState(false);
+
+  useEffect(() => {
+    localStorage.setItem("wf-sb-w", String(sbWidth));
+  }, [sbWidth]);
+  useEffect(() => {
+    localStorage.setItem("wf-sb-collapsed", sbCollapsed ? "1" : "0");
+  }, [sbCollapsed]);
+
+  const startResize = (e: ReactMouseEvent) => {
+    e.preventDefault();
+    setResizing(true);
+    const startX = e.clientX;
+    const startW = sbWidth;
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+    const onMove = (ev: MouseEvent) =>
+      setSbWidth(Math.min(460, Math.max(200, startW + ev.clientX - startX)));
+    const onUp = () => {
+      setResizing(false);
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
 
   useEffect(() => {
     let alive = true;
@@ -213,22 +251,39 @@ function WorkflowLayout({
     });
   }, [rows]);
 
+  if (sbCollapsed) {
+    return (
+      <div className="workspace">
+        <button className="sidebar-reopen" onClick={() => setSbCollapsed(false)} title="메뉴 열기">
+          ›
+        </button>
+        <div className="wf-detail">{children}</div>
+      </div>
+    );
+  }
+
   return (
     <div className="workspace">
-      <aside className="wf-sidebar">
-        <div className="sidebar-head">
-          <h2>워크플로우</h2>
-          <button className="primary small" onClick={() => onNew(hlDomain)}>
-            + 새로
-          </button>
-        </div>
+      <aside className="wf-sidebar" style={{ ["--sb-w" as string]: `${sbWidth}px` } as CSSProperties}>
+        <div className="sidebar-scroll">
+          <div className="sidebar-head">
+            <div className="sidebar-title">
+              <button className="icon-btn" onClick={() => setSbCollapsed(true)} title="메뉴 닫기">
+                ‹
+              </button>
+              <h2>워크플로우</h2>
+            </div>
+            <button className="primary small" onClick={() => onNew(hlDomain)}>
+              + 새로
+            </button>
+          </div>
 
-        {error ? <div className="error-banner">{error}</div> : null}
+          {error ? <div className="error-banner">{error}</div> : null}
 
-        {!rows ? (
-          <p className="muted">불러오는 중…</p>
-        ) : (
-          <nav className="domain-tree">
+          {!rows ? (
+            <p className="muted">불러오는 중…</p>
+          ) : (
+            <nav className="domain-tree">
             {tree.map(({ domain, tasks }) => {
               const color = colorForDomain(domain, colors);
               const open = openDomains.has(domain);
@@ -276,8 +331,14 @@ function WorkflowLayout({
                 </div>
               );
             })}
-          </nav>
-        )}
+            </nav>
+          )}
+        </div>
+        <div
+          className={`sidebar-resizer ${resizing ? "active" : ""}`}
+          onMouseDown={startResize}
+          title="드래그하여 크기 조절"
+        />
       </aside>
 
       <div className="wf-detail">{children}</div>

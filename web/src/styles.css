@@ -54,13 +54,60 @@ code {
   align-items: flex-start;
 }
 .wf-sidebar {
-  width: 280px;
+  width: var(--sb-w, 280px);
   flex-shrink: 0;
   position: sticky;
   top: 84px;
+  align-self: flex-start;
+}
+.sidebar-scroll {
   max-height: calc(100vh - 104px);
   overflow-y: auto;
-  padding-right: 4px;
+  padding-right: 8px;
+}
+.sidebar-resizer {
+  position: absolute;
+  top: 0;
+  right: -13px;
+  width: 14px;
+  height: 100%;
+  cursor: col-resize;
+  display: flex;
+  justify-content: center;
+}
+.sidebar-resizer::before {
+  content: "";
+  width: 2px;
+  height: 100%;
+  border-radius: 2px;
+  background: transparent;
+  transition: background 0.12s;
+}
+.sidebar-resizer:hover::before,
+.sidebar-resizer.active::before {
+  background: var(--accent);
+}
+.sidebar-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sidebar-reopen {
+  position: sticky;
+  top: 84px;
+  align-self: flex-start;
+  flex-shrink: 0;
+  width: 26px;
+  height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 18px;
+}
+.sidebar-reopen:hover {
+  color: var(--text);
+  border-color: var(--accent);
 }
 .wf-detail {
   flex: 1;
@@ -307,7 +354,12 @@ button.primary.small {
   .wf-sidebar {
     width: 100%;
     position: static;
+  }
+  .sidebar-scroll {
     max-height: none;
+  }
+  .sidebar-resizer {
+    display: none;
   }
 }
 
@@ -566,11 +618,13 @@ button.link {
   padding: 4px 14px 14px;
   display: grid;
   gap: 10px;
+  min-width: 0;
 }
 .json-block {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 8px;
+  min-width: 0; /* 넓은 표/JSON이 카드를 늘리지 않고 내부에서 가로 스크롤되도록 */
 }
 .json-title {
   padding: 6px 12px;
@@ -591,10 +645,22 @@ button.link {
   align-items: center;
 }
 
-/* result table (표 모드) */
+/* result table (표 모드) — 넓으면 내부에서 가로 스크롤 */
 .result-table-wrap {
+  max-width: 100%;
   overflow-x: auto;
   padding: 4px;
+  scrollbar-width: thin;
+}
+.result-table-wrap::-webkit-scrollbar {
+  height: 10px;
+}
+.result-table-wrap::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 5px;
+}
+.result-table-wrap::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
 }
 .result-table {
   border-collapse: collapse;
