@@ -34,6 +34,8 @@ export function StepCard({ step, state, accentColor, resultView, footer }: Props
   const meta = STATUS_META[status];
   const hasDetail = state?.request || state?.response || state?.error;
   const asTable = resultView?.mode === "TABLE";
+  // 중간 입력이 뜬 동안에는 결과를 보고 선택해야 하므로 상세(응답)를 강제로 펼친다.
+  const showDetail = hasDetail && (open || !!footer);
 
   return (
     <div
@@ -48,7 +50,7 @@ export function StepCard({ step, state, accentColor, resultView, footer }: Props
       <button
         className="step-head"
         onClick={() => hasDetail && setOpen((v) => !v)}
-        aria-expanded={open}
+        aria-expanded={showDetail}
       >
         <span className="step-order">{step.order}</span>
         <span className="step-name">
@@ -58,10 +60,10 @@ export function StepCard({ step, state, accentColor, resultView, footer }: Props
         <span className={`step-status ${meta.cls}`}>
           <span className="step-icon">{meta.icon}</span> {meta.label}
         </span>
-        {hasDetail ? <span className="chevron">{open ? "▾" : "▸"}</span> : null}
+        {hasDetail ? <span className="chevron">{showDetail ? "▾" : "▸"}</span> : null}
       </button>
 
-      {open && hasDetail ? (
+      {showDetail ? (
         <div className="step-detail">
           {state?.error ? <JsonBlock title="에러" data={state.error} /> : null}
           {state?.request ? <JsonBlock title="요청" data={state.request} /> : null}

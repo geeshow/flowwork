@@ -288,14 +288,16 @@ describe("runWorkflow", () => {
         },
       ],
     };
-    const proxy = vi.fn(async (): Promise<ProxyResult> => ({
+    const proxy = vi.fn(async (_p: Parameters<RunDeps["proxy"]>[0]): Promise<ProxyResult> => ({
       response: { status: 200, body: { data: [{ id: "A1", name: "foo" }] } },
     }));
     const template = (s: WorkflowStep): PostmanRequest => ({
       method: "GET",
       url: { raw: s.id === "step_1" ? "http://localhost:9100/list" : "http://localhost:9100/use/{{picked}}" },
     });
-    const collectMidInputs = vi.fn(async () => ({ picked: "A1" }));
+    const collectMidInputs = vi.fn(
+      async (_a: Parameters<NonNullable<RunDeps["collectMidInputs"]>>[0]) => ({ picked: "A1" }),
+    );
     const deps: RunDeps = {
       getRequestTemplate: template,
       proxy,
