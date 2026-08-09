@@ -40,6 +40,57 @@ flowwork/
     └── architecture.md
 ```
 
+## 실행 방법 (POC)
+
+요구사항: Python 3.12+, Node 20+.
+
+### 1. 서버 (FastAPI)
+
+```bash
+cd server
+python3.12 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+
+# 데모 워크플로우 시드 + 목 업스트림 API(:9100) 기동
+python scripts/seed.py
+python scripts/mock_upstream.py &
+
+# 시크릿(vault://payments/api-token) 리졸브용 환경변수와 함께 서버 기동(:8000)
+SECRET_PAYMENTS_API_TOKEN=dev-token-example uvicorn main:app --port 8000
+```
+
+### 2. 프론트엔드 (Vite + React)
+
+```bash
+cd web
+npm install
+npm run dev        # http://localhost:5173 (→ :8000 프록시)
+```
+
+브라우저에서 "정산 취소 처리" 워크플로우를 열고 고객 ID `C1`(ACTIVE → 취소 실행) 또는
+`C2`(CLOSED → 폐쇄 스텝 SKIPPED)로 실행 흐름/분기/이력을 확인할 수 있습니다.
+
+### 테스트
+
+```bash
+cd server && pytest          # 서버 14 케이스
+cd web && npm test           # 실행 엔진 14 케이스
+```
+
+## 구현 현황
+
+| 영역 | 상태 |
+|---|---|
+| 서버 proxy (SSRF allowlist + 시크릿 리졸브 + 로그 리댁션) | ✅ |
+| 워크플로우 파일 CRUD (원자적 저장) | ✅ |
+| 실행 이력 append/조회 (JSONL), 공유 URL | ✅ |
+| API 카탈로그 인메모리 인덱싱 (Postman v2.1) | ✅ |
+| 실행 엔진: 값 리졸버 / 템플릿 / 분기 / 실행 루프 / 재처리(resumeFrom) | ✅ |
+| UI: 스텝 카드(상태·JSON 상세), 입력 폼(MANUAL·FIXED_COMBO), 실행/이력 화면 | ✅ |
+| 입력 폼 API_COMBO / DEPENDENT_LOOKUP 카탈로그 조회 연동 | ⏳ 직접 입력으로 대체 |
+| 등록/편집 UI (카탈로그 드릴다운 + 변수 바인딩) | ⏳ 미구현 |
+| AI 워크플로우 추천, 권한 체크, 외부 Vault 연동 | ⏳ POC 이후 |
+
 ## 현재 상태
 
-설계 단계 (POC). 권한 체크, Vault 연동 등은 POC 이후로 미루고 최소 구현으로 시작합니다.
+POC 최소 구현 단계. 권한 체크, 외부 Vault 연동 등은 [POC 이후](./docs/architecture.md#10-poc-스코프)로 미룹니다.

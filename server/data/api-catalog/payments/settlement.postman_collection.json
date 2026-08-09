@@ -1,0 +1,44 @@
+{
+  "info": {
+    "name": "settlement",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "정산",
+      "item": [
+        {
+          "name": "정산 조회",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/customers/{{customerId}}/settlement",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "customers", "{{customerId}}", "settlement"]
+            }
+          }
+        },
+        {
+          "name": "정산 취소",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/settlements/{{settlementId}}/cancel",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "settlements", "{{settlementId}}", "cancel"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"reason\": \"{{reason}}\"}"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
