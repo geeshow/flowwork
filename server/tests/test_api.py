@@ -12,12 +12,16 @@ def client(monkeypatch):
     # config는 import 시점에 경로를 고정하므로, 모듈을 새로 로드해야 tmp가 반영된다.
     import importlib
 
+    import app.catalog as catalog
+    import app.collections as collections
     import app.config as config
     import app.storage as storage
     import main
 
     importlib.reload(config)
     importlib.reload(storage)
+    importlib.reload(collections)
+    importlib.reload(catalog)
     importlib.reload(main)
     with TestClient(main.app) as c:
         yield c
@@ -111,7 +115,27 @@ def test_domain_color_rejects_non_hex(client):
     assert client.get("/api/domains").json() == {"colors": {}}
 
 
-def test_catalog_search(client):
+def test_catalog_search_indexes_api_collections(client):
+    """워크플로우용 API 인덱스는 API 콜렉션에 등록된 요청만 노출한다."""
+    assert client.get("/api/catalog/search").json()["results"] == []  # 콜렉션 없음 → 빈 인덱스
+
+    client.post("/api/apic/workspaces", json={"name": "payments"})
+    doc = client.post("/api/apic/workspaces/payments/collections", json={"name": "정산"}).json()
+    doc["items"] = [
+        {
+            "type": "http",
+            "name": "정산 조회",
+            "request": {
+                "method": "GET",
+                "url": "{{baseUrl}}/settlements",
+                "headers": [],
+                "params": [],
+                "body": {"mode": "none"},
+            },
+        }
+    ]
+    client.put(f"/api/apic/workspaces/payments/collections/{doc['id']}", json=doc)
+
     resp = client.get("/api/catalog/search", params={"q": "정산"}).json()
     names = [e["name"] for e in resp["results"]]
     assert "정산 조회" in names

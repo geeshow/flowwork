@@ -1,31 +1,30 @@
-"""API 카탈로그 — Postman Collection v2.1 + Bruno(.bru) 인덱싱.
+"""워크플로우용 API 인덱스 — API 콜렉션(data/api-collections)을 평탄화해 검색/조회.
 
-카탈로그는 배포 단위로 고정되므로 서버 기동 시 1회 로드해 메모리에 평탄화한다
-(부서 디렉토리 → collection 파일 → 폴더 트리 → 개별 요청). 두 형식을 동시에 지원하며
-Bruno는 app/bruno.py가 Postman과 동일한 내부 requestTemplate 형태로 정규화한다.
+워크플로우 스텝은 API 콜렉션에 등록된 API만 참조할 수 있다. 콜렉션은 UI에서
+수시로 편집되므로 기동 시 1회 로드가 아니라 **호출 시마다 파일을 스캔**한다
+(소규모 전제 — 규모가 커지면 저장 시점 인덱스 갱신으로 대체).
+
+CatalogEntry 참조 체계:
+  department     = workspace 이름
+  collectionFile = 콜렉션 id (이름 변경에도 참조가 깨지지 않도록 id 사용)
+  itemPath       = 콜렉션 내 폴더 경로
+  name           = 요청 이름
 """
 from __future__ import annotations
 
 import hashlib
 import json
 import re
-from pathlib import Path
 from typing import Any
 
-from . import bruno
-from .config import CATALOG_DIR
+from . import collections as store
 from .models import CatalogEntry
 
 _TEMPLATE_VAR = re.compile(r"\{\{(\w+)\}\}")
 
-# 인메모리 인덱스 (startup 시 build_index로 채움)
-_index: list[CatalogEntry] = []
-_commit_sha: str | None = None
-_environments: dict[str, str] = {}
-
 
 def extract_template_variables(request_template: dict[str, Any]) -> list[str]:
-    """Postman 요청 템플릿에서 {{variable}} 목록 추출 (중복 제거, 순서 보존)."""
+    """요청 템플릿에서 {{variable}} 목록 추출 (중복 제거, 순서 보존)."""
     raw = json.dumps(request_template, ensure_ascii=False)
     seen: dict[str, None] = {}
     for m in _TEMPLATE_VAR.finditer(raw):
@@ -33,150 +32,168 @@ def extract_template_variables(request_template: dict[str, Any]) -> list[str]:
     return list(seen.keys())
 
 
-def _request_url(request: dict[str, Any]) -> str:
-    url = request.get("url")
-    if isinstance(url, str):
-        return url
-    if isinstance(url, dict):
-        return url.get("raw", "")
-    return ""
-
-
-def _entry_id(department: str, collection_file: str, item_path: list[str], name: str) -> str:
+def entry_id(department: str, collection_file: str, item_path: list[str], name: str) -> str:
     key = "/".join([department, collection_file, *item_path, name])
     return hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
 
 
+def apic_request_to_template(request: dict[str, Any]) -> dict[str, Any]:
+    """API 콜렉션 요청 → 실행 엔진이 소비하는 Postman형 템플릿.
+
+    - 활성(enabled) query 파라미터는 url에 병합 (엔진은 url 문자열만 치환)
+    - 활성 헤더만 포함, body는 raw 문자열로 (엔진이 치환 후 JSON 파싱 시도)
+    """
+    url = str(request.get("url") or "")
+    query = [
+        p
+        for p in request.get("params") or []
+        if isinstance(p, dict)
+        and p.get("kind", "query") == "query"
+        and p.get("enabled", True)
+        and p.get("name")
+    ]
+    if query:
+        qs = "&".join(f"{p['name']}={p.get('value', '')}" for p in query)
+        url = f"{url}{'&' if '?' in url else '?'}{qs}"
+
+    header = [
+        {"key": h.get("name", ""), "value": h.get("value", "")}
+        for h in request.get("headers") or []
+        if isinstance(h, dict) and h.get("enabled", True) and h.get("name")
+    ]
+    template: dict[str, Any] = {
+        "method": str(request.get("method") or "GET"),
+        "header": header,
+        "url": {"raw": url},
+    }
+    body = request.get("body") or {}
+    raw = None
+    if body.get("mode") == "json":
+        raw = body.get("json")
+    elif body.get("mode") == "text":
+        raw = body.get("text")
+    if raw:
+        template["body"] = {"mode": "raw", "raw": raw}
+    return template
+
+
+def _output_meta(raw: Any) -> tuple[list[str], dict[str, str]]:
+    """request.output(문자열 또는 {name, label} 혼합) → (필드명 목록, 필드명→라벨 맵)."""
+    names: list[str] = []
+    labels: dict[str, str] = {}
+    if not isinstance(raw, list):
+        return names, labels
+    for f in raw:
+        if isinstance(f, dict) and f.get("name"):
+            names.append(str(f["name"]))
+            if f.get("label"):
+                labels[str(f["name"])] = str(f["label"])
+        elif isinstance(f, str) and f:
+            names.append(f)
+    return names, labels
+
+
 def _walk_items(
-    items: list[dict[str, Any]],
+    items: list[Any],
     *,
-    department: str,
-    collection_file: str,
+    workspace: str,
+    collection_id: str,
+    collection_name: str,
     trail: list[str],
     out: list[CatalogEntry],
 ) -> None:
-    """Postman item 트리를 재귀 순회. 폴더는 하위 item[]을, 요청은 request를 가진다."""
     for item in items:
-        name = item.get("name", "")
-        if isinstance(item.get("item"), list):  # 폴더
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") == "folder":
             _walk_items(
-                item["item"],
-                department=department,
-                collection_file=collection_file,
-                trail=[*trail, name],
+                item.get("items") or [],
+                workspace=workspace,
+                collection_id=collection_id,
+                collection_name=collection_name,
+                trail=[*trail, str(item.get("name") or "")],
                 out=out,
             )
             continue
-        request = item.get("request")
-        if not isinstance(request, dict):
+        if item.get("type") != "http":
             continue
-        raw_output = item.get("_output")
-        output_fields = [str(f) for f in raw_output] if isinstance(raw_output, list) else []
+        request = item.get("request") or {}
+        name = str(item.get("name") or "")
+        if not name:
+            continue
+        template = apic_request_to_template(request)
+        output_fields, output_labels = _output_meta(request.get("output"))
         out.append(
             CatalogEntry(
-                id=_entry_id(department, collection_file, trail, name),
-                department=department,
-                collectionFile=collection_file,
+                id=entry_id(workspace, collection_id, trail, name),
+                department=workspace,
+                collectionFile=collection_id,
+                collectionName=collection_name,
                 itemPath=list(trail),
                 name=name,
-                method=request.get("method", "GET"),
-                url=_request_url(request),
-                variables=extract_template_variables(request),
+                method=template["method"],
+                url=template["url"]["raw"],
+                variables=extract_template_variables(template),
                 outputFields=output_fields,
-                requestTemplate=request,
+                outputLabels=output_labels,
+                requestTemplate=template,
             )
         )
 
 
-def build_index(catalog_dir: Path = CATALOG_DIR) -> tuple[list[CatalogEntry], str | None]:
-    """카탈로그 디렉토리를 스캔해 (엔트리 목록, commit_sha) 반환.
-
-    Postman(*.postman_collection.json)과 Bruno(bruno.json 컬렉션)를 모두 인덱싱한다.
-    """
+def build_entries() -> list[CatalogEntry]:
+    """모든 workspace의 모든 콜렉션을 평탄화한 엔트리 목록."""
     entries: list[CatalogEntry] = []
-    # Postman 컬렉션
-    for path in sorted(catalog_dir.glob("**/*.postman_collection.json")):
-        try:
-            collection = json.loads(path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            continue
-        # 부서 = catalog_dir 바로 아래 디렉토리명
-        rel = path.relative_to(catalog_dir)
-        department = rel.parts[0] if len(rel.parts) > 1 else "_root"
-        _walk_items(
-            collection.get("item", []),
-            department=department,
-            collection_file=path.name,
-            trail=[],
-            out=entries,
-        )
-    # Bruno 컬렉션 (부서 디렉토리에 bruno.json이 있으면 그 디렉토리의 .bru를 인덱싱)
-    for bruno_json in sorted(catalog_dir.glob("*/bruno.json")):
-        collection_dir = bruno_json.parent
-        department = collection_dir.relative_to(catalog_dir).parts[0]
-        entries.extend(
-            bruno.build_collection_entries(
-                collection_dir,
-                department,
-                _entry_id,
-                CatalogEntry,
-                extract_template_variables,
+    for ws in store.list_workspaces():
+        for summary in store.list_collections(ws["name"]):
+            doc = store.load_collection(ws["name"], summary["id"])
+            if doc is None:
+                continue
+            _walk_items(
+                doc.get("items") or [],
+                workspace=ws["name"],
+                collection_id=doc.get("id", summary["id"]),
+                collection_name=str(doc.get("name") or summary.get("name") or ""),
+                trail=[],
+                out=entries,
             )
-        )
-    sha_path = catalog_dir / ".commit_sha"
-    commit_sha = sha_path.read_text(encoding="utf-8").strip() if sha_path.exists() else None
-    return entries, commit_sha
-
-
-def build_environments(catalog_dir: Path = CATALOG_DIR) -> dict[str, str]:
-    """environments/*.postman_environment.json을 병합해 key→value 맵 생성.
-
-    vault:// 참조는 치환하지 않고 그대로 둔다(프론트로 전달됨). 참조 문자열
-    자체는 시크릿이 아니며, 실제 시크릿 치환은 프록시가 호출 직전에 수행한다.
-    """
-    merged: dict[str, str] = {}
-    env_dir = catalog_dir / "environments"
-    # Postman 환경
-    for path in sorted(env_dir.glob("*.postman_environment.json")):
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            continue
-        for v in data.get("values", []):
-            if v.get("enabled", True) and "key" in v:
-                merged[v["key"]] = v.get("value", "")
-    # Bruno 환경 (environments/*.bru)
-    for path in sorted(env_dir.glob("*.bru")):
-        try:
-            merged.update(bruno.parse_environment(path.read_text(encoding="utf-8")))
-        except OSError:
-            continue
-    return merged
-
-
-def load_index() -> None:
-    global _index, _commit_sha, _environments
-    _index, _commit_sha = build_index()
-    _environments = build_environments()
+    return entries
 
 
 def environments() -> dict[str, str]:
-    return _environments
+    """모든 콜렉션의 모든 환경을 병합한 key→value 맵.
+
+    (구 카탈로그의 environments/ 병합과 동일한 의미 — 콜렉션 간 공용 변수
+    참조를 허용한다. vault:// 참조는 그대로 두고 프록시가 호출 직전 치환.)
+    """
+    merged: dict[str, str] = {}
+    for ws in store.list_workspaces():
+        for summary in store.list_collections(ws["name"]):
+            doc = store.load_collection(ws["name"], summary["id"])
+            if doc is None:
+                continue
+            for env in doc.get("environments") or []:
+                for v in env.get("variables") or []:
+                    if isinstance(v, dict) and v.get("enabled", True) and v.get("name"):
+                        merged[str(v["name"])] = str(v.get("value") or "")
+    return merged
 
 
 def search(q: str = "", limit: int = 50) -> tuple[list[CatalogEntry], str | None]:
+    entries = build_entries()
     if not q:
-        return _index[:limit], _commit_sha
+        return entries[:limit], None
     needle = q.lower()
     hits = [
         e
-        for e in _index
+        for e in entries
         if needle in e.name.lower()
         or needle in e.url.lower()
+        or needle in e.department.lower()
         or any(needle in p.lower() for p in e.itemPath)
     ]
-    return hits[:limit], _commit_sha
+    return hits[:limit], None
 
 
-def get_entry(entry_id: str) -> CatalogEntry | None:
-    return next((e for e in _index if e.id == entry_id), None)
+def get_entry(entry_id_: str) -> CatalogEntry | None:
+    return next((e for e in build_entries() if e.id == entry_id_), None)

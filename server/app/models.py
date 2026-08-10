@@ -71,18 +71,20 @@ class DomainColor(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# 카탈로그
+# 워크플로우용 API 인덱스 (API 콜렉션 평탄화)
 # ---------------------------------------------------------------------------
 class CatalogEntry(BaseModel):
     id: str
-    department: str
-    collectionFile: str
+    department: str  # workspace 이름
+    collectionFile: str  # 콜렉션 id
+    collectionName: str = ""  # 콜렉션 표시 이름 (편집기 필터용)
     itemPath: list[str]
     name: str
     method: str
     url: str
     variables: list[str] = Field(default_factory=list)
-    outputFields: list[str] = Field(default_factory=list)  # API 명세서상 응답(output) 필드
+    outputFields: list[str] = Field(default_factory=list)  # API 명세서상 응답(output) 필드명
+    outputLabels: dict[str, str] = Field(default_factory=dict)  # 필드명 → 한글 설명(라벨)
     requestTemplate: dict[str, Any]
 
 
