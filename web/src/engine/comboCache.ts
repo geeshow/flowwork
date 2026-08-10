@@ -55,6 +55,8 @@ export function extractOne(body: unknown): Record<string, unknown> | null {
     const data = (body as { data?: unknown }).data;
     if (Array.isArray(data)) return (data[0] as Record<string, unknown>) ?? null;
     if (data && typeof data === "object") return data as Record<string, unknown>;
+    // data 키가 있는데 null/원시값이면 "결과 없음" — body 자체를 결과로 오인하지 않는다
+    if ("data" in (body as object)) return null;
     return body as Record<string, unknown>;
   }
   return null;

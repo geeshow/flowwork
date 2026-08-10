@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { api, type WorkflowSummary } from "../api/client";
-import { makeTemplateResolver } from "../engine/catalogLookup";
+import { makeTemplateResolver, refKey } from "../engine/catalogLookup";
 import { runWorkflow, type RunDeps } from "../engine/runWorkflow";
 import type {
   CatalogEntry,
@@ -154,7 +154,7 @@ export function WorkflowRunner({ workflow, onOpenExecution }: Props) {
     return loadError ? (
       <div className="error-banner">{loadError}</div>
     ) : (
-      <p className="muted">카탈로그 불러오는 중…</p>
+      <p className="muted">API 콜렉션 불러오는 중…</p>
     );
   }
 
@@ -195,6 +195,10 @@ export function WorkflowRunner({ workflow, onOpenExecution }: Props) {
               const w = summaries.find((s) => s.id === id);
               return w ? { domain: w.domain, task: w.task, name: w.name } : undefined;
             });
+            // 결과 표 헤더에 쓸 필드 설명 — 스텝이 참조하는 API 콜렉션 항목의 outputLabels
+            const entry = step.apiBinding
+              ? catalog.find((e) => refKey(e) === refKey(step.apiBinding!.catalogEntry))
+              : undefined;
             return (
               <StepCard
                 key={step.id}
@@ -203,6 +207,7 @@ export function WorkflowRunner({ workflow, onOpenExecution }: Props) {
                 resultView={step.resultView}
                 typeLabel={typeLabel}
                 category={category}
+                outputLabels={entry?.outputLabels}
                 footer={midPrompt?.uid === step.id ? renderMidForm() : null}
               />
             );

@@ -37,6 +37,8 @@ interface Props {
   typeLabel?: "API" | "연결업무";
   // 분류 경로: API는 "부서 > 폴더", 연결업무는 "도메인 > 업무 > 업무명"
   category?: string;
+  // 결과 표 헤더용 필드 설명(라벨) 맵 — 설명이 있으면 설명, 없으면 필드명 표시
+  outputLabels?: Record<string, string>;
   // 카드 하단 슬롯 — 중간 입력 폼 등. 있으면 카드를 펼친 채로 렌더한다.
   footer?: ReactNode;
 }
@@ -45,7 +47,7 @@ interface Props {
  * 스텝 카드 — 실행 상태를 색/아이콘으로 표시하고, 클릭 시 request/response 전체를
  * JSON 뷰어로 펼친다. 실행 화면과 히스토리 상세가 동일 컴포넌트를 재사용한다.
  */
-export function StepCard({ step, state, resultView, typeLabel, category, footer }: Props) {
+export function StepCard({ step, state, resultView, typeLabel, category, outputLabels, footer }: Props) {
   const [open, setOpen] = useState(false);
   // 표 모드로 설정돼 있으면 표를 기본으로, 필요 시 원본 JSON으로 토글
   const [rawResp, setRawResp] = useState(false);
@@ -94,7 +96,7 @@ export function StepCard({ step, state, resultView, typeLabel, category, footer 
                     { } 원본
                   </button>
                 </div>
-                <ResultTable data={state.response} columns={resultView!.columns} />
+                <ResultTable data={state.response} columns={resultView!.columns} labels={outputLabels} />
               </div>
             ) : asTable && rawResp ? (
               <div className="json-block">

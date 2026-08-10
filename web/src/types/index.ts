@@ -178,14 +178,16 @@ export interface PostmanRequest {
 
 export interface CatalogEntry {
   id: string;
-  department: string;
-  collectionFile: string;
+  department: string; // workspace 이름
+  collectionFile: string; // 콜렉션 id
+  collectionName: string; // 콜렉션 표시 이름 (편집기 필터용)
   itemPath: string[];
   name: string;
   method: string;
   url: string;
   variables: string[];
-  outputFields: string[]; // API 명세서상 응답(output) 필드
+  outputFields: string[]; // API 명세서상 응답(output) 필드명
+  outputLabels: Record<string, string>; // 필드명 → 한글 설명(라벨)
   requestTemplate: PostmanRequest;
 }
 

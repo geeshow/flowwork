@@ -144,8 +144,18 @@ function Scroller({ children }: { children: ReactNode }) {
   );
 }
 
-export function ResultTable({ data, columns }: { data: unknown; columns: string[] }) {
+export function ResultTable({
+  data,
+  columns,
+  labels,
+}: {
+  data: unknown;
+  columns: string[];
+  // 필드명 → 한글 설명(라벨). 라벨이 있으면 헤더에 라벨을, 없으면 필드명을 쓴다.
+  labels?: Record<string, string>;
+}) {
   const root = unwrap(data);
+  const head = (c: string) => labels?.[c] ?? c;
 
   if (Array.isArray(root)) {
     const rows = root as Record<string, unknown>[];
@@ -157,7 +167,9 @@ export function ResultTable({ data, columns }: { data: unknown; columns: string[
           <thead>
             <tr>
               {cols.map((c) => (
-                <th key={c}>{c}</th>
+                <th key={c} title={c}>
+                  {head(c)}
+                </th>
               ))}
             </tr>
           </thead>
@@ -184,7 +196,7 @@ export function ResultTable({ data, columns }: { data: unknown; columns: string[
           <tbody>
             {cols.map((c) => (
               <tr key={c}>
-                <th>{c}</th>
+                <th title={c}>{head(c)}</th>
                 <td>{cell(getPath(obj, c))}</td>
               </tr>
             ))}

@@ -18,6 +18,24 @@ interface ApiComboApi {
     labelField: string,
     valueField: string,
   ) => Promise<ComboOption[]>;
+  /** 조회 API의 응답 필드 설명(필드명 → 한글 라벨) — 부가정보 표시에 사용. */
+  outputLabels: (apiId: string) => Record<string, string>;
+}
+
+/** 프록시 호출 결과가 실패(HTTP 4xx/5xx 또는 네트워크 오류)면 메시지를 담아 던진다. */
+function ensureOk(res: { response: { status: number | null; body: unknown } }): void {
+  const { status, body } = res.response;
+  if (status != null && status >= 200 && status < 400) return;
+  const detail =
+    body && typeof body === "object"
+      ? String(
+          (body as Record<string, unknown>).error ??
+            (body as Record<string, unknown>).detail ??
+            (body as Record<string, unknown>).message ??
+            JSON.stringify(body).slice(0, 200),
+        )
+      : String(body ?? "");
+  throw new Error(status == null ? `네트워크 오류: ${detail}` : `HTTP ${status}: ${detail}`);
 }
 
 const Ctx = createContext<ApiComboApi | null>(null);
@@ -64,6 +82,7 @@ export function ApiComboProvider({
       return cacheRef.current.get(key, async () => {
         const request = resolveTemplate(entry.requestTemplate, refBinding(entry, {}), baseCtx(env));
         const res = await api.invoke(request);
+        ensureOk(res);
         return extractRows(res.response.body).map((row) => ({
           label: String(row[labelField]),
           value: String(row[valueField]),
@@ -87,6 +106,7 @@ export function ApiComboProvider({
       }
       const request = resolveTemplate(entry.requestTemplate, refBinding(entry, bindings), baseCtx(env));
       const res = await api.invoke(request);
+      ensureOk(res);
       return extractOne(res.response.body);
     },
     [entryById, env],
@@ -112,6 +132,7 @@ export function ApiComboProvider({
         }
         const request = resolveTemplate(entry.requestTemplate, refBinding(entry, bindings), baseCtx(env));
         const res = await api.invoke(request);
+        ensureOk(res);
         return extractRows(res.response.body).map((row) => ({
           label: String(row[labelField] ?? ""),
           value: String(row[valueField] ?? ""),
@@ -121,7 +142,15 @@ export function ApiComboProvider({
     [entryById, env],
   );
 
-  const value = useMemo(() => ({ getOptions, lookup, lookupList }), [getOptions, lookup, lookupList]);
+  const outputLabels = useCallback(
+    (apiId: string) => entryById.get(apiId)?.outputLabels ?? {},
+    [entryById],
+  );
+
+  const value = useMemo(
+    () => ({ getOptions, lookup, lookupList, outputLabels }),
+    [getOptions, lookup, lookupList, outputLabels],
+  );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

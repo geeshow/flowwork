@@ -47,4 +47,9 @@ describe("extractRows / extractOne", () => {
     expect(extractOne({ data: [{ name: "lee" }] })).toEqual({ name: "lee" });
     expect(extractOne([{ name: "park" }])).toEqual({ name: "park" });
   });
+
+  it("{data: null}은 결과 없음(null) — body 자체를 결과로 오인하지 않는다", () => {
+    expect(extractOne({ data: null })).toBeNull();
+    expect(extractOne({ data: [] })).toBeNull();
+  });
 });

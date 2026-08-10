@@ -15,24 +15,41 @@ interface Props {
 export function CatalogPicker({ entries, selectedId, onSelect }: Props) {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
+  // 콜렉션 필터 — 여러 GitHub 레포/workspace에서 동기화된 콜렉션 중 하나를 골라 좁힌다
+  const [colFilter, setColFilter] = useState("");
 
   const selected = entries.find((e) => e.id === selectedId) ?? null;
+
+  // (workspace, 콜렉션) 필터 옵션 — 엔트리에서 유일한 콜렉션 목록 도출
+  const collections = useMemo(() => {
+    const seen = new Map<string, { id: string; label: string }>();
+    for (const e of entries) {
+      if (!seen.has(e.collectionFile)) {
+        seen.set(e.collectionFile, {
+          id: e.collectionFile,
+          label: `${e.department} / ${e.collectionName || e.collectionFile}`,
+        });
+      }
+    }
+    return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label, "ko"));
+  }, [entries]);
 
   const results = useMemo(() => {
     // 한글 입력 정규화(NFC) — 조합/분해 표현이 섞여도 검색이 되도록
     const norm = (s: string) => s.normalize("NFC").toLowerCase();
     const needle = norm(q.trim());
+    const scoped = colFilter ? entries.filter((e) => e.collectionFile === colFilter) : entries;
     const list = needle
-      ? entries.filter(
+      ? scoped.filter(
           (e) =>
             norm(e.name).includes(needle) ||
             norm(e.url).includes(needle) ||
             e.itemPath.some((p) => norm(p).includes(needle)) ||
             norm(e.department).includes(needle),
         )
-      : entries;
+      : scoped;
     return list.slice(0, 30);
-  }, [entries, q]);
+  }, [entries, q, colFilter]);
 
   return (
     <div className="catalog-picker">
@@ -51,19 +68,33 @@ export function CatalogPicker({ entries, selectedId, onSelect }: Props) {
         </div>
       ) : (
         <button className="link" onClick={() => setOpen(true)}>
-          + 카탈로그에서 API 선택
+          + API 콜렉션에서 API 선택
         </button>
       )}
 
       {open || !selected ? (
         <div className="catalog-search">
-          <input
-            type="text"
-            placeholder="API 검색 (이름 / URL / 부서 / 폴더)"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            autoFocus
-          />
+          <div className="catalog-filter-row">
+            <select
+              value={colFilter}
+              onChange={(e) => setColFilter(e.target.value)}
+              title="콜렉션으로 좁히기 (workspace / 콜렉션)"
+            >
+              <option value="">전체 콜렉션</option>
+              {collections.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+            <input
+              type="text"
+              placeholder="API 검색 (이름 / URL / workspace / 폴더)"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              autoFocus
+            />
+          </div>
           <ul className="catalog-results">
             {results.length === 0 ? <li className="muted">결과 없음</li> : null}
             {results.map((e) => (

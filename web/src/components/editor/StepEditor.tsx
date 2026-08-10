@@ -213,8 +213,10 @@ export function StepEditor({
                 <div className="checkbox-row">
                   {outFields.map((f) => {
                     const on = rv.columns.includes(f);
+                    // 필드 설명(한글 라벨)이 있으면 설명을, 없으면 필드명을 표시
+                    const label = selectedEntry?.outputLabels?.[f];
                     return (
-                      <label key={f} className={`checkbox-chip ${on ? "on" : ""}`}>
+                      <label key={f} className={`checkbox-chip ${on ? "on" : ""}`} title={f}>
                         <input
                           type="checkbox"
                           checked={on}
@@ -226,7 +228,7 @@ export function StepEditor({
                             })
                           }
                         />
-                        {f}
+                        {label ?? f}
                       </label>
                     );
                   })}

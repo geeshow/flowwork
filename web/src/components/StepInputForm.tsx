@@ -197,21 +197,25 @@ function DependentLookupInput({
   env?: EnvironmentValues;
   onChange: (key: string, value: Primitive) => void;
 }) {
-  const { lookup } = useApiCombo();
+  const { lookup, outputLabels } = useApiCombo();
   // 의존 입력 key는 기본입력값 또는 환경변수에서 온다.
   const dependValue = values[def.dependsOnKey] ?? env?.[def.dependsOnKey] ?? null;
   const [info, setInfo] = useState<Record<string, unknown> | null>(null);
   const [status, setStatus] = useState<"idle" | "loading" | "ok" | "fail">("idle");
+  // 조회 실패 사유 — API 오류면 그 메시지, 결과가 없으면 안내 문구
+  const [failReason, setFailReason] = useState<string | null>(null);
 
   useEffect(() => {
     if (dependValue == null || dependValue === "") {
       setInfo(null);
       setStatus("idle");
+      setFailReason(null);
       if (value != null) onChange(def.key, null);
       return;
     }
     let alive = true;
     setStatus("loading");
+    setFailReason(null);
     const t = setTimeout(() => {
       lookup(def.lookupApiId, def.dependsOnKey, dependValue)
         .then((row) => {
@@ -227,12 +231,14 @@ function DependentLookupInput({
           } else {
             setInfo(null);
             setStatus("fail");
+            setFailReason("조회 결과가 없습니다");
             onChange(def.key, null);
           }
         })
-        .catch(() => {
+        .catch((e) => {
           if (alive) {
             setStatus("fail");
+            setFailReason((e as Error).message);
             onChange(def.key, null);
           }
         });
@@ -257,13 +263,20 @@ function DependentLookupInput({
         ) : null}
         {status === "fail" ? <span className="hint error-text"> 조회 실패</span> : null}
       </div>
+      {status === "fail" && failReason ? (
+        <div className="lookup-fail-reason error-text">{failReason}</div>
+      ) : null}
       {status === "ok" && info ? (
         <div className="lookup-info">
-          {def.displayFields.map((f) => (
-            <span key={f} className="lookup-field">
-              <span className="muted">{f}:</span> {String(info[f] ?? "-")}
-            </span>
-          ))}
+          {def.displayFields.map((f) => {
+            // 필드 설명(한글 라벨)이 있으면 설명을, 없으면 필드명을 표시
+            const label = outputLabels(def.lookupApiId)[f];
+            return (
+              <span key={f} className="lookup-field" title={f}>
+                <span className="muted">{label ?? f}:</span> {String(info[f] ?? "-")}
+              </span>
+            );
+          })}
         </div>
       ) : null}
     </div>
@@ -291,29 +304,34 @@ function DependentComboInput({
   const dependValue = values[def.dependsOnKey] ?? env?.[def.dependsOnKey] ?? null;
   const [options, setOptions] = useState<{ label: string; value: string }[] | null>(null);
   const [status, setStatus] = useState<"idle" | "loading" | "ok" | "fail">("idle");
+  const [failReason, setFailReason] = useState<string | null>(null);
 
   useEffect(() => {
     if (dependValue == null || dependValue === "") {
       setOptions(null);
       setStatus("idle");
+      setFailReason(null);
       if (value != null) onChange(def.key, null);
       return;
     }
     let alive = true;
     setStatus("loading");
     setOptions(null);
+    setFailReason(null);
     const t = setTimeout(() => {
       lookupList(def.lookupApiId, def.dependsOnKey, dependValue, def.labelField, def.valueField)
         .then((opts) => {
           if (!alive) return;
           setOptions(opts);
           setStatus(opts.length ? "ok" : "fail");
+          if (!opts.length) setFailReason("조회 결과가 없습니다");
           // 선택값이 새 옵션에 없으면 초기화
           if (value != null && !opts.some((o) => o.value === String(value))) onChange(def.key, null);
         })
-        .catch(() => {
+        .catch((e) => {
           if (!alive) return;
           setStatus("fail");
+          setFailReason((e as Error).message);
           setOptions([]);
           onChange(def.key, null);
         });
@@ -333,7 +351,12 @@ function DependentComboInput({
       </span>
     );
   if (status === "loading") return <span className="hint">목록 조회 중…</span>;
-  if (status === "fail") return <span className="hint error-text">조회 결과 없음</span>;
+  if (status === "fail")
+    return (
+      <span className="hint error-text">
+        조회 실패{failReason ? ` — ${failReason}` : ""}
+      </span>
+    );
 
   return (
     <select value={value == null ? "" : String(value)} onChange={(e) => onChange(def.key, e.target.value)}>
