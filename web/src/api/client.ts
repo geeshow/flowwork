@@ -4,6 +4,11 @@ import type {
   ResolvedRequest,
   Workflow,
 } from "../types";
+import type {
+  ApicCollection,
+  ApicCollectionSummary,
+  ApicWorkspace,
+} from "../types/apic";
 import type { ProxyResult } from "../engine/runWorkflow";
 
 async function req<T>(input: string, init?: RequestInit): Promise<T> {
@@ -96,6 +101,78 @@ export const api = {
         body: request.body ?? null,
       }),
     }),
+
+  // ---- API 콜렉션 (Bruno 스타일 workspace/collection) ----
+  apicListWorkspaces: () =>
+    req<{ workspaces: ApicWorkspace[] }>("/api/apic/workspaces").then((r) => r.workspaces),
+
+  apicCreateWorkspace: (name: string) =>
+    req<{ status: string }>("/api/apic/workspaces", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
+
+  apicDeleteWorkspace: (ws: string) =>
+    req<{ status: string }>(`/api/apic/workspaces/${encodeURIComponent(ws)}`, {
+      method: "DELETE",
+    }),
+
+  apicListCollections: (ws: string) =>
+    req<{ collections: ApicCollectionSummary[] }>(
+      `/api/apic/workspaces/${encodeURIComponent(ws)}/collections`,
+    ).then((r) => r.collections),
+
+  apicCreateCollection: (ws: string, name: string) =>
+    req<ApicCollection>(`/api/apic/workspaces/${encodeURIComponent(ws)}/collections`, {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
+
+  apicGetCollection: (ws: string, id: string) =>
+    req<ApicCollection>(
+      `/api/apic/workspaces/${encodeURIComponent(ws)}/collections/${encodeURIComponent(id)}`,
+    ),
+
+  apicSaveCollection: (ws: string, doc: ApicCollection) =>
+    req<{ status: string }>(
+      `/api/apic/workspaces/${encodeURIComponent(ws)}/collections/${encodeURIComponent(doc.id)}`,
+      { method: "PUT", body: JSON.stringify(doc) },
+    ),
+
+  apicDeleteCollection: (ws: string, id: string) =>
+    req<{ status: string }>(
+      `/api/apic/workspaces/${encodeURIComponent(ws)}/collections/${encodeURIComponent(id)}`,
+      { method: "DELETE" },
+    ),
+
+  apicImportCollection: (ws: string, data: unknown) =>
+    req<ApicCollection>(
+      `/api/apic/workspaces/${encodeURIComponent(ws)}/collections/import`,
+      { method: "POST", body: JSON.stringify(data) },
+    ),
+
+  // GitHub 연결 콜렉션을 레포 최신 내용으로 갱신 (id 유지 → 워크플로우 참조 보존)
+  apicSyncCollection: (ws: string, id: string) =>
+    req<ApicCollection>(
+      `/api/apic/workspaces/${encodeURIComponent(ws)}/collections/${encodeURIComponent(id)}/sync`,
+      { method: "POST" },
+    ),
+
+  // GitHub 인증 상태 (서버의 gh CLI / GITHUB_TOKEN env) — private 레포 import용
+  apicGithubStatus: () =>
+    req<{ logged_in: boolean; login: string | null }>("/api/apic/github/status"),
+
+  // GitHub 레포에서 Bruno/Postman 콜렉션 일괄 가져오기
+  apicImportGithub: (ws: string, url: string) =>
+    req<{ imported: ApicCollectionSummary[] }>(
+      `/api/apic/workspaces/${encodeURIComponent(ws)}/collections/import-github`,
+      { method: "POST", body: JSON.stringify({ url }) },
+    ).then((r) => r.imported),
+
+  apicExportCollection: (ws: string, id: string, format: "bruno" | "postman") =>
+    req<Record<string, unknown>>(
+      `/api/apic/workspaces/${encodeURIComponent(ws)}/collections/${encodeURIComponent(id)}/export?format=${format}`,
+    ),
 
   proxy: (payload: {
     execution_id: string;

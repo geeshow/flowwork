@@ -9,6 +9,7 @@ import {
 
 import { api, type WorkflowSummary } from "./api/client";
 import { ExecutionDetail, HistoryMain } from "./components/HistoryView";
+import { ApiClientPage } from "./components/apic/ApiClientPage";
 import { WorkflowEditor } from "./components/editor/WorkflowEditor";
 import { WorkflowRunner } from "./components/WorkflowRunner";
 import { colorForDomain } from "./domainPalette";
@@ -21,18 +22,28 @@ type Route =
   | { view: "new"; domain?: string; task?: string }
   | { view: "edit"; id: string }
   | { view: "history"; domain?: string; task?: string }
-  | { view: "execution"; executionId: string };
+  | { view: "execution"; executionId: string }
+  | { view: "apic"; ws?: string };
 
 // 경로(pathname) → Route. 해시 없는 깔끔한 URL(/executions/{id} 등)을 파싱한다.
 function parseLocation(): Route {
   const parts = location.pathname.split("/").filter(Boolean);
   const [head, a, b] = parts;
-  const dec = (s?: string) => (s ? decodeURIComponent(s) : undefined);
+  // 손상된 인코딩(%E 등)이 와도 앱이 죽지 않도록 실패 시 원문을 그대로 쓴다
+  const dec = (s?: string) => {
+    if (!s) return undefined;
+    try {
+      return decodeURIComponent(s);
+    } catch {
+      return s;
+    }
+  };
   if (head === "executions" && a) return { view: "execution", executionId: a };
   if (head === "run" && a) return { view: "run", id: a };
   if (head === "t" && a && b) return { view: "task", domain: dec(a)!, task: dec(b)! };
   if (head === "new") return { view: "new", domain: dec(a), task: dec(b) };
   if (head === "edit" && a) return { view: "edit", id: a };
+  if (head === "apic") return { view: "apic", ws: dec(a) };
   if (head === "history") {
     if (a === "t" && b && parts[3]) return { view: "history", domain: dec(b), task: dec(parts[3]) };
     return { view: "history" };
@@ -83,6 +94,9 @@ export default function App() {
           </button>
           <button className={navHistoryActive ? "active" : ""} onClick={() => go("/history")}>
             워크플로우 이력
+          </button>
+          <button className={route.view === "apic" ? "active" : ""} onClick={() => go("/apic")}>
+            API 콜렉션
           </button>
         </div>
       </nav>
@@ -164,6 +178,12 @@ export default function App() {
             </section>
           </WorkflowLayout>
         ) : null}
+        {route.view === "apic" ? (
+          <ApiClientPage
+            ws={route.ws}
+            onSelectWs={(w) => go(w ? `/apic/${encodeURIComponent(w)}` : "/apic")}
+          />
+        ) : null}
         {route.view === "execution" ? (
           <WorkflowLayout
             title="워크플로우 이력"
@@ -218,12 +238,23 @@ function WorkflowLayout({
   const [colors, setColors] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   // 펼친 도메인 집합. 여러 도메인을 동시에 열어둘 수 있고, 새 선택이 기존 열림을 닫지 않는다.
-  const [openDomains, setOpenDomains] = useState<Set<string>>(() => new Set());
+  // 라우트 이동(이력/실행 상세 등)으로 레이아웃이 다시 마운트돼도 유지되도록 localStorage에 저장.
+  const [openDomains, setOpenDomains] = useState<Set<string>>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("wf-open-domains") ?? "[]");
+      return new Set(Array.isArray(saved) ? saved.map(String) : []);
+    } catch {
+      return new Set();
+    }
+  });
   // 사이드바 크기 조절 / 접기 (localStorage 유지)
   const [sbWidth, setSbWidth] = useState(() => Number(localStorage.getItem("wf-sb-w")) || 280);
   const [sbCollapsed, setSbCollapsed] = useState(() => localStorage.getItem("wf-sb-collapsed") === "1");
   const [resizing, setResizing] = useState(false);
 
+  useEffect(() => {
+    localStorage.setItem("wf-open-domains", JSON.stringify([...openDomains]));
+  }, [openDomains]);
   useEffect(() => {
     localStorage.setItem("wf-sb-w", String(sbWidth));
   }, [sbWidth]);
