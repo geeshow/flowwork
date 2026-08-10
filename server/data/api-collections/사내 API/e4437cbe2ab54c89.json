@@ -1,0 +1,673 @@
+{
+  "id": "e4437cbe2ab54c89",
+  "name": "flowwork-apis",
+  "items": [
+    {
+      "type": "folder",
+      "name": "core",
+      "items": [
+        {
+          "type": "folder",
+          "name": "계좌",
+          "items": [
+            {
+              "type": "http",
+              "name": "계좌 목록 조회",
+              "request": {
+                "method": "GET",
+                "url": "{{coreBaseUrl}}/users/{{app_user_id}}/accounts?status={{account_status}}",
+                "headers": [
+                  {
+                    "name": "Authorization",
+                    "value": "Bearer {{authToken}}",
+                    "enabled": true,
+                    "description": "인증 토큰 (Bearer)"
+                  }
+                ],
+                "params": [],
+                "body": {
+                  "mode": "none"
+                },
+                "output": [
+                  {
+                    "name": "accountNo",
+                    "label": "계좌번호"
+                  },
+                  {
+                    "name": "name",
+                    "label": "계좌명"
+                  },
+                  {
+                    "name": "accountType",
+                    "label": "계좌 유형"
+                  },
+                  {
+                    "name": "status",
+                    "label": "상태"
+                  },
+                  {
+                    "name": "openedAt",
+                    "label": "개설일"
+                  },
+                  {
+                    "name": "closedAt",
+                    "label": "폐쇄일"
+                  },
+                  {
+                    "name": "owner.name",
+                    "label": "소유자명"
+                  },
+                  {
+                    "name": "owner.cif",
+                    "label": "소유자 CIF"
+                  },
+                  {
+                    "name": "balance.amount",
+                    "label": "잔액"
+                  },
+                  {
+                    "name": "balance.currency",
+                    "label": "통화"
+                  },
+                  {
+                    "name": "tags",
+                    "label": "태그"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "http",
+              "name": "계좌 목록 조회 (보안ID)",
+              "request": {
+                "method": "GET",
+                "url": "{{coreBaseUrl}}/accounts?sec_user_id={{sec_user_id}}",
+                "headers": [
+                  {
+                    "name": "Authorization",
+                    "value": "Bearer {{authToken}}",
+                    "enabled": true,
+                    "description": "인증 토큰 (Bearer)"
+                  }
+                ],
+                "params": [],
+                "body": {
+                  "mode": "none"
+                },
+                "output": [
+                  {
+                    "name": "accountNo",
+                    "label": "계좌번호"
+                  },
+                  {
+                    "name": "name",
+                    "label": "계좌명"
+                  },
+                  {
+                    "name": "accountType",
+                    "label": "계좌 유형"
+                  },
+                  {
+                    "name": "status",
+                    "label": "상태"
+                  },
+                  {
+                    "name": "openedAt",
+                    "label": "개설일"
+                  },
+                  {
+                    "name": "closedAt",
+                    "label": "폐쇄일"
+                  },
+                  {
+                    "name": "owner.name",
+                    "label": "소유자명"
+                  },
+                  {
+                    "name": "owner.cif",
+                    "label": "소유자 CIF"
+                  },
+                  {
+                    "name": "balance.amount",
+                    "label": "잔액"
+                  },
+                  {
+                    "name": "balance.currency",
+                    "label": "통화"
+                  },
+                  {
+                    "name": "tags",
+                    "label": "태그"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "http",
+              "name": "계좌 폐쇄",
+              "request": {
+                "method": "POST",
+                "url": "{{coreBaseUrl}}/accounts/{{accountNo}}/close",
+                "headers": [
+                  {
+                    "name": "Authorization",
+                    "value": "Bearer {{authToken}}",
+                    "enabled": true,
+                    "description": "인증 토큰 (Bearer)"
+                  },
+                  {
+                    "name": "Content-Type",
+                    "value": "application/json",
+                    "enabled": true,
+                    "description": "요청 본문 형식"
+                  }
+                ],
+                "params": [],
+                "body": {
+                  "mode": "json",
+                  "json": "{\"reason\": \"{{reason}}\"}"
+                },
+                "output": [
+                  {
+                    "name": "accountNo",
+                    "label": "계좌번호"
+                  },
+                  {
+                    "name": "status",
+                    "label": "상태"
+                  },
+                  {
+                    "name": "closedAt",
+                    "label": "폐쇄일"
+                  },
+                  {
+                    "name": "reason",
+                    "label": "사유"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "http",
+              "name": "계좌 출금",
+              "request": {
+                "method": "POST",
+                "url": "{{coreBaseUrl}}/accounts/{{accountNo}}/withdraw",
+                "headers": [
+                  {
+                    "name": "Authorization",
+                    "value": "Bearer {{authToken}}",
+                    "enabled": true,
+                    "description": "인증 토큰 (Bearer)"
+                  },
+                  {
+                    "name": "Content-Type",
+                    "value": "application/json",
+                    "enabled": true,
+                    "description": "요청 본문 형식"
+                  }
+                ],
+                "params": [],
+                "body": {
+                  "mode": "json",
+                  "json": "{\"amount\": {{amount}}, \"password\": \"{{password}}\"}"
+                },
+                "output": [
+                  {
+                    "name": "accountNo",
+                    "label": "계좌번호"
+                  },
+                  {
+                    "name": "status",
+                    "label": "상태"
+                  },
+                  {
+                    "name": "withdrawnAmount",
+                    "label": "출금액"
+                  },
+                  {
+                    "name": "balanceAfter",
+                    "label": "출금 후 잔액"
+                  },
+                  {
+                    "name": "reason",
+                    "label": "사유"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "type": "folder",
+          "name": "메타코드",
+          "items": [
+            {
+              "type": "http",
+              "name": "계좌 활성 상태 코드",
+              "request": {
+                "method": "GET",
+                "url": "{{coreBaseUrl}}/meta/codes/account_status",
+                "headers": [
+                  {
+                    "name": "Authorization",
+                    "value": "Bearer {{authToken}}",
+                    "enabled": true,
+                    "description": "인증 토큰 (Bearer)"
+                  }
+                ],
+                "params": [],
+                "body": {
+                  "mode": "none"
+                },
+                "output": [
+                  {
+                    "name": "code",
+                    "label": "코드"
+                  },
+                  {
+                    "name": "name",
+                    "label": "코드명"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "http",
+              "name": "사용자 상태 코드",
+              "request": {
+                "method": "GET",
+                "url": "{{coreBaseUrl}}/meta/codes/user_status",
+                "headers": [
+                  {
+                    "name": "Authorization",
+                    "value": "Bearer {{authToken}}",
+                    "enabled": true,
+                    "description": "인증 토큰 (Bearer)"
+                  }
+                ],
+                "params": [],
+                "body": {
+                  "mode": "none"
+                },
+                "output": [
+                  {
+                    "name": "code",
+                    "label": "코드"
+                  },
+                  {
+                    "name": "name",
+                    "label": "코드명"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "http",
+              "name": "메타 코드 조회",
+              "request": {
+                "method": "GET",
+                "url": "{{coreBaseUrl}}/meta/codes/{{code_group}}",
+                "headers": [
+                  {
+                    "name": "Authorization",
+                    "value": "Bearer {{authToken}}",
+                    "enabled": true,
+                    "description": "인증 토큰 (Bearer)"
+                  }
+                ],
+                "params": [],
+                "body": {
+                  "mode": "none"
+                },
+                "output": [
+                  {
+                    "name": "code",
+                    "label": "코드"
+                  },
+                  {
+                    "name": "name",
+                    "label": "코드명"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "type": "folder",
+          "name": "사용자",
+          "items": [
+            {
+              "type": "http",
+              "name": "사용자 정보 조회",
+              "request": {
+                "method": "GET",
+                "url": "{{coreBaseUrl}}/users?sec_user_id={{sec_user_id}}&cif={{CIF}}",
+                "headers": [
+                  {
+                    "name": "Authorization",
+                    "value": "Bearer {{authToken}}",
+                    "enabled": true,
+                    "description": "인증 토큰 (Bearer)"
+                  }
+                ],
+                "params": [],
+                "body": {
+                  "mode": "none"
+                },
+                "output": [
+                  {
+                    "name": "app_user_id",
+                    "label": "앱 사용자 ID"
+                  },
+                  {
+                    "name": "sec_user_id",
+                    "label": "보안 사용자 ID"
+                  },
+                  {
+                    "name": "CIF",
+                    "label": "고객식별번호"
+                  },
+                  {
+                    "name": "name",
+                    "label": "이름"
+                  },
+                  {
+                    "name": "phone",
+                    "label": "전화번호"
+                  },
+                  {
+                    "name": "email",
+                    "label": "이메일"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "http",
+              "name": "사용자 정보 조회 (앱ID)",
+              "request": {
+                "method": "GET",
+                "url": "{{coreBaseUrl}}/users/{{app_user_id}}",
+                "headers": [
+                  {
+                    "name": "Authorization",
+                    "value": "Bearer {{authToken}}",
+                    "enabled": true,
+                    "description": "인증 토큰 (Bearer)"
+                  }
+                ],
+                "params": [],
+                "body": {
+                  "mode": "none"
+                },
+                "output": [
+                  {
+                    "name": "app_user_id",
+                    "label": "앱 사용자 ID"
+                  },
+                  {
+                    "name": "sec_user_id",
+                    "label": "보안 사용자 ID"
+                  },
+                  {
+                    "name": "CIF",
+                    "label": "고객식별번호"
+                  },
+                  {
+                    "name": "name",
+                    "label": "이름"
+                  },
+                  {
+                    "name": "phone",
+                    "label": "전화번호"
+                  },
+                  {
+                    "name": "email",
+                    "label": "이메일"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "type": "folder",
+          "name": "약정",
+          "items": [
+            {
+              "type": "http",
+              "name": "전체 약정 코드 목록 조회",
+              "request": {
+                "method": "GET",
+                "url": "{{coreBaseUrl}}/agreements/codes",
+                "headers": [
+                  {
+                    "name": "Authorization",
+                    "value": "Bearer {{authToken}}",
+                    "enabled": true,
+                    "description": "인증 토큰 (Bearer)"
+                  }
+                ],
+                "params": [],
+                "body": {
+                  "mode": "none"
+                },
+                "output": [
+                  {
+                    "name": "code",
+                    "label": "코드"
+                  },
+                  {
+                    "name": "name",
+                    "label": "코드명"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "folder",
+      "name": "customer",
+      "items": [
+        {
+          "type": "folder",
+          "name": "고객",
+          "items": [
+            {
+              "type": "http",
+              "name": "고객 목록",
+              "request": {
+                "method": "GET",
+                "url": "{{baseUrl}}/api/customers",
+                "headers": [
+                  {
+                    "name": "Authorization",
+                    "value": "Bearer {{authToken}}",
+                    "enabled": true,
+                    "description": "인증 토큰 (Bearer)"
+                  }
+                ],
+                "params": [],
+                "body": {
+                  "mode": "none"
+                },
+                "output": [
+                  {
+                    "name": "id",
+                    "label": "고객 ID"
+                  },
+                  {
+                    "name": "name",
+                    "label": "고객명"
+                  },
+                  {
+                    "name": "phone",
+                    "label": "전화번호"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "http",
+              "name": "고객 조회",
+              "request": {
+                "method": "GET",
+                "url": "{{baseUrl}}/api/customers/{{customerId}}",
+                "headers": [
+                  {
+                    "name": "Authorization",
+                    "value": "Bearer {{authToken}}",
+                    "enabled": true,
+                    "description": "인증 토큰 (Bearer)"
+                  }
+                ],
+                "params": [],
+                "body": {
+                  "mode": "none"
+                },
+                "output": [
+                  {
+                    "name": "id",
+                    "label": "고객 ID"
+                  },
+                  {
+                    "name": "name",
+                    "label": "고객명"
+                  },
+                  {
+                    "name": "phone",
+                    "label": "전화번호"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "folder",
+      "name": "payments",
+      "items": [
+        {
+          "type": "folder",
+          "name": "정산",
+          "items": [
+            {
+              "type": "http",
+              "name": "정산 조회",
+              "request": {
+                "method": "GET",
+                "url": "{{baseUrl}}/api/customers/{{customerId}}/settlement",
+                "headers": [
+                  {
+                    "name": "Authorization",
+                    "value": "Bearer {{authToken}}",
+                    "enabled": true,
+                    "description": "인증 토큰 (Bearer)"
+                  }
+                ],
+                "params": [],
+                "body": {
+                  "mode": "none"
+                },
+                "output": [
+                  {
+                    "name": "settlementId",
+                    "label": "정산 ID"
+                  },
+                  {
+                    "name": "status",
+                    "label": "상태"
+                  },
+                  {
+                    "name": "amount",
+                    "label": "금액"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "http",
+              "name": "정산 취소",
+              "request": {
+                "method": "POST",
+                "url": "{{baseUrl}}/api/settlements/{{settlementId}}/cancel",
+                "headers": [
+                  {
+                    "name": "Authorization",
+                    "value": "Bearer {{authToken}}",
+                    "enabled": true,
+                    "description": "인증 토큰 (Bearer)"
+                  },
+                  {
+                    "name": "Content-Type",
+                    "value": "application/json",
+                    "enabled": true,
+                    "description": "요청 본문 형식"
+                  }
+                ],
+                "params": [],
+                "body": {
+                  "mode": "json",
+                  "json": "{\"reason\": \"{{reason}}\"}"
+                },
+                "output": [
+                  {
+                    "name": "settlementId",
+                    "label": "정산 ID"
+                  },
+                  {
+                    "name": "status",
+                    "label": "상태"
+                  },
+                  {
+                    "name": "reason",
+                    "label": "사유"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "environments": [
+    {
+      "name": "core",
+      "variables": [
+        {
+          "name": "coreBaseUrl",
+          "value": "http://localhost:9100/core",
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "name": "payments",
+      "variables": [
+        {
+          "name": "baseUrl",
+          "value": "http://localhost:9100/payments",
+          "enabled": true
+        },
+        {
+          "name": "authToken",
+          "value": "vault://payments/api-token",
+          "enabled": true
+        }
+      ]
+    }
+  ],
+  "activeEnvironment": "core",
+  "source": {
+    "type": "github",
+    "url": "https://github.com/geeshow/flowwork-apis"
+  }
+}

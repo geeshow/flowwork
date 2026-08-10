@@ -18,7 +18,7 @@ DATA_DIR = Path(os.environ.get("FLOWWORK_DATA_DIR", SERVER_ROOT / "data"))
 
 WORKFLOWS_DIR = DATA_DIR / "workflows"
 EXECUTIONS_DIR = DATA_DIR / "executions"
-CATALOG_DIR = DATA_DIR / "api-catalog"
+COLLECTIONS_DIR = DATA_DIR / "api-collections"  # API 콜렉션 (workspace/collection)
 DOMAINS_FILE = DATA_DIR / "domains.json"  # 도메인 → 팔레트 색상 id 매핑
 
 PROXY_TIMEOUT_SECONDS = float(os.environ.get("FLOWWORK_PROXY_TIMEOUT", "15.0"))

@@ -10,14 +10,13 @@
 from __future__ import annotations
 
 import time
-from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from app import catalog, storage
+from app import catalog, collections, storage
 from app.config import ALLOWED_HOST_PREFIXES, PROXY_TIMEOUT_SECONDS
 from app.models import (
     CatalogSearchResult,
@@ -32,13 +31,7 @@ from app.redaction import redact_body, redact_for_logging, redact_response
 from app.secrets import SecretNotFoundError, resolve_vault_deep
 
 
-@asynccontextmanager
-async def lifespan(_: FastAPI):
-    catalog.load_index()  # 기동 시 카탈로그 1회 로드
-    yield
-
-
-app = FastAPI(title="flowwork", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="flowwork", version="0.1.0")
 
 # POC: 로컬 개발 프론트(vite)에서의 접근 허용
 app.add_middleware(
@@ -207,7 +200,8 @@ async def set_domain_color(domain: str, body: DomainColor) -> SaveResult:
 
 
 # ---------------------------------------------------------------------------
-# 4. API 카탈로그
+# 4. 워크플로우용 API 인덱스 — API 콜렉션(api-collections)을 평탄화해 제공.
+#    워크플로우는 API 콜렉션에 등록된 API만 사용할 수 있다.
 # ---------------------------------------------------------------------------
 @app.get("/api/catalog/search", response_model=CatalogSearchResult)
 async def search_catalog(q: str = "") -> CatalogSearchResult:
@@ -217,7 +211,7 @@ async def search_catalog(q: str = "") -> CatalogSearchResult:
 
 @app.get("/api/catalog/environments")
 async def get_environments() -> dict:
-    # vault:// 참조는 그대로 반환(프록시가 호출 직전 치환)
+    # 모든 콜렉션의 환경 병합. vault:// 참조는 그대로 반환(프록시가 호출 직전 치환)
     return {"values": catalog.environments()}
 
 
@@ -227,6 +221,134 @@ async def get_catalog_entry(entry_id: str) -> dict:
     if entry is None:
         raise HTTPException(404, "카탈로그 항목을 찾을 수 없습니다")
     return entry.model_dump()
+
+
+# ---------------------------------------------------------------------------
+# 5. API 콜렉션 (Bruno 스타일 workspace/collection + Import/Export)
+# ---------------------------------------------------------------------------
+class NameBody(BaseModel):
+    name: str
+
+
+@app.get("/api/apic/workspaces")
+async def apic_list_workspaces() -> dict:
+    return {"workspaces": collections.list_workspaces()}
+
+
+@app.post("/api/apic/workspaces", response_model=SaveResult)
+async def apic_create_workspace(body: NameBody) -> SaveResult:
+    try:
+        collections.create_workspace(body.name)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    return SaveResult(status="saved")
+
+
+@app.delete("/api/apic/workspaces/{workspace}", response_model=SaveResult)
+async def apic_delete_workspace(workspace: str) -> SaveResult:
+    try:
+        deleted = collections.delete_workspace(workspace)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    if not deleted:
+        raise HTTPException(404, "workspace를 찾을 수 없습니다")
+    return SaveResult(status="deleted")
+
+
+@app.get("/api/apic/workspaces/{workspace}/collections")
+async def apic_list_collections(workspace: str) -> dict:
+    try:
+        return {"collections": collections.list_collections(workspace)}
+    except ValueError as e:
+        raise HTTPException(404, str(e)) from e
+
+
+@app.post("/api/apic/workspaces/{workspace}/collections")
+async def apic_create_collection(workspace: str, body: NameBody) -> dict:
+    try:
+        return collections.create_collection(workspace, body.name)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@app.post("/api/apic/workspaces/{workspace}/collections/import")
+async def apic_import_collection(workspace: str, data: dict) -> dict:
+    try:
+        return collections.import_collection(workspace, data)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+class GithubImportBody(BaseModel):
+    url: str
+
+
+@app.get("/api/apic/github/status")
+async def apic_github_status() -> dict:
+    """GitHub 인증 상태 (gh CLI 또는 GITHUB_TOKEN env). private 레포 import에 사용."""
+    return await collections.github_auth_status()
+
+
+@app.post("/api/apic/workspaces/{workspace}/collections/import-github")
+async def apic_import_github(workspace: str, body: GithubImportBody) -> dict:
+    """GitHub 레포 URL에서 Bruno/Postman 콜렉션을 찾아 workspace에 추가한다."""
+    try:
+        return {"imported": await collections.import_from_github(workspace, body.url)}
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@app.post("/api/apic/workspaces/{workspace}/collections/{collection_id}/sync")
+async def apic_sync_collection(workspace: str, collection_id: str) -> dict:
+    """GitHub에 연결된 콜렉션을 레포 최신 내용으로 갱신 (id 유지 → 워크플로우 참조 보존)."""
+    try:
+        return await collections.sync_collection(workspace, collection_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@app.get("/api/apic/workspaces/{workspace}/collections/{collection_id}")
+async def apic_get_collection(workspace: str, collection_id: str) -> dict:
+    try:
+        doc = collections.load_collection(workspace, collection_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    if doc is None:
+        raise HTTPException(404, "콜렉션을 찾을 수 없습니다")
+    return doc
+
+
+@app.put("/api/apic/workspaces/{workspace}/collections/{collection_id}", response_model=SaveResult)
+async def apic_save_collection(workspace: str, collection_id: str, doc: dict) -> SaveResult:
+    if doc.get("id") != collection_id:
+        raise HTTPException(400, "경로의 id와 본문의 id가 일치하지 않습니다")
+    try:
+        collections.save_collection(workspace, doc)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    return SaveResult(status="saved")
+
+
+@app.delete("/api/apic/workspaces/{workspace}/collections/{collection_id}", response_model=SaveResult)
+async def apic_delete_collection(workspace: str, collection_id: str) -> SaveResult:
+    try:
+        deleted = collections.delete_collection(workspace, collection_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    if not deleted:
+        raise HTTPException(404, "콜렉션을 찾을 수 없습니다")
+    return SaveResult(status="deleted")
+
+
+@app.get("/api/apic/workspaces/{workspace}/collections/{collection_id}/export")
+async def apic_export_collection(workspace: str, collection_id: str, format: str = "bruno") -> dict:
+    try:
+        doc = collections.load_collection(workspace, collection_id)
+        if doc is None:
+            raise HTTPException(404, "콜렉션을 찾을 수 없습니다")
+        return collections.export_collection(doc, format)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
 
 
 @app.get("/api/health")
