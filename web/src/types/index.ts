@@ -152,6 +152,9 @@ export interface Workflow {
   description?: string;
   baseInputs: StepInputDef[]; // 기본 입력값 (스텝보다 먼저 정의)
   steps: WorkflowStep[];
+  // 낙관적 잠금 버전 (서버가 조회 시 채움 — 파일 내용 해시).
+  // 저장 시 그대로 보내면, 그 사이 다른 사용자가 저장했을 때 서버가 409로 거부한다.
+  version?: string;
 }
 
 // ---------------------------------------------------------------------------

@@ -180,17 +180,27 @@ async def get_workflow(workflow_id: str, source: str = "prod", branch: str | Non
 
 @app.put("/api/workflows/{workflow_id}", response_model=SaveResult)
 async def save_workflow(
-    workflow_id: str, wf: WorkflowFile, source: str = "edit", branch: str | None = None
+    workflow_id: str,
+    wf: WorkflowFile,
+    source: str = "edit",
+    branch: str | None = None,
+    force: bool = False,
 ) -> SaveResult:
     if wf.id != workflow_id:
         raise HTTPException(400, "경로의 id와 본문의 id가 일치하지 않습니다")
     try:
-        await storage.save_workflow(wf, _check_editable(source), branch)
+        version = await storage.save_workflow(wf, _check_editable(source), branch, force)
+    except storage.VersionConflictError as e:
+        # 동일 브랜치 동시 저장 충돌 — 프론트가 서버 최신본과 비교/해결하도록 구조화된 detail
+        raise HTTPException(
+            409,
+            {"code": "version_conflict", "message": str(e), "current_version": e.current_version},
+        ) from e
     except storage.DuplicateNameError as e:
         raise HTTPException(409, str(e)) from e
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
-    return SaveResult(status="saved")
+    return SaveResult(status="saved", version=version)
 
 
 @app.delete("/api/workflows/{workflow_id}", response_model=SaveResult)

@@ -2401,3 +2401,24 @@ button.link {
   background: var(--running);
   flex-shrink: 0;
 }
+
+/* 동시 저장 충돌 (낙관적 잠금) */
+.save-conflict {
+  border-color: var(--running);
+}
+.save-conflict h3 {
+  color: var(--running);
+  margin-top: 0;
+}
+.save-conflict .diff-table-wrap {
+  max-height: 320px;
+  overflow-y: auto;
+  margin: 10px 0;
+}
+.save-conflict-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 16px;
+  margin-top: 10px;
+}

@@ -56,6 +56,9 @@ class WorkflowFile(BaseModel):
     description: str | None = None
     baseInputs: list[dict[str, Any]] = Field(default_factory=list)  # 기본 입력값
     steps: list[WorkflowStep] = Field(default_factory=list)
+    # 낙관적 잠금 버전 (파일 내용 해시). 조회 시 채워지고, 저장 시 기준 버전으로
+    # 사용된다 — 그 사이 다른 사용자가 저장했으면 409. 파일에는 저장하지 않는다.
+    version: str | None = None
 
 
 class WorkflowSummary(BaseModel):
@@ -103,3 +106,4 @@ class ExecutionDetail(BaseModel):
 
 class SaveResult(BaseModel):
     status: Literal["saved", "deleted"]
+    version: str | None = None  # 저장 후 새 버전 (낙관적 잠금용)

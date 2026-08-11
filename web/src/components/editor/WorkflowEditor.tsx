@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { api, type WorkflowSummary } from "../../api/client";
+import { api, VersionConflictError, type WorkflowSummary } from "../../api/client";
 import { colorForDomain, isValidHex, PRESET_COLORS } from "../../domainPalette";
+import { diffLines } from "../../engine/diff";
 import type { CatalogEntry, EnvironmentValues, Workflow, WorkflowStep } from "../../types";
+import { DiffTable } from "../edit/MergeView";
 import { InputDefEditor } from "./InputDefEditor";
 import { StepEditor } from "./StepEditor";
 
@@ -55,6 +57,9 @@ export function WorkflowEditor({ mode, id, initialDomain, initialTask, onSaved, 
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [envOpen, setEnvOpen] = useState(false);
+  // 동시 저장 충돌 — 다른 사용자가 조회 이후 같은 워크플로우를 저장/삭제한 경우.
+  // server: 서버 최신본(null이면 삭제됨), mine: 내가 저장하려던 내용
+  const [conflict, setConflict] = useState<{ server: Workflow | null; mine: Workflow } | null>(null);
 
   // 편집기는 항상 편집 worktree(source=edit) 기준으로 읽고 쓴다.
   // 저장 = worktree 파일 쓰기 (커밋 전 로컬 임시 저장) — git 커밋/머지는 편집 메뉴에서.
@@ -146,7 +151,7 @@ export function WorkflowEditor({ mode, id, initialDomain, initialTask, onSaved, 
     return null;
   }
 
-  async function handleSave() {
+  async function handleSave(force = false) {
     const normalized: Workflow = {
       ...wf!,
       name: wf!.name.trim(),
@@ -159,18 +164,28 @@ export function WorkflowEditor({ mode, id, initialDomain, initialTask, onSaved, 
     }
     setSaving(true);
     setError(null);
+    setConflict(null);
     try {
       // 도메인 색상 먼저 저장 (선택/변경했든 아니든 도메인에 색을 확정해 둔다)
       const domain = normalized.domain.normalize("NFC");
       if (isValidHex(domainColor)) await api.setDomainColor(domain, domainColor);
-      await api.saveWorkflow(normalized);
+      await api.saveWorkflow(normalized, { force });
       onSaved(normalized.id);
     } catch (e) {
-      setError((e as Error).message);
+      if (e instanceof VersionConflictError) {
+        // 서버 최신본을 가져와 비교/해결 UI를 띄운다 (404면 삭제된 것)
+        const server = await api.getWorkflow(normalized.id, "edit").catch(() => null);
+        setConflict({ server, mine: normalized });
+      } else {
+        setError((e as Error).message);
+      }
     } finally {
       setSaving(false);
     }
   }
+
+  // 충돌 diff용 JSON (버전 메타는 비교에서 제외)
+  const stripVersion = ({ version: _v, ...rest }: Workflow) => rest;
 
   return (
     <div className="editor">
@@ -180,13 +195,69 @@ export function WorkflowEditor({ mode, id, initialDomain, initialTask, onSaved, 
           <button className="link" onClick={onCancel}>
             취소
           </button>
-          <button className="primary" onClick={handleSave} disabled={saving}>
+          <button className="primary" onClick={() => void handleSave()} disabled={saving}>
             {saving ? "저장 중…" : "저장"}
           </button>
         </div>
       </div>
 
       {error ? <div className="error-banner">{error}</div> : null}
+
+      {conflict ? (
+        <section className="panel save-conflict">
+          <h3>⚠ 저장 충돌</h3>
+          {conflict.server ? (
+            <>
+              <p className="muted">
+                다른 사용자가 이 워크플로우를 먼저 저장했습니다. 서버 최신 내용(좌)과 내 수정(우)을
+                비교한 뒤 해결하세요.
+              </p>
+              <DiffTable
+                rows={diffLines(
+                  JSON.stringify(stripVersion(conflict.server), null, 2),
+                  JSON.stringify(stripVersion(conflict.mine), null, 2),
+                )}
+                leftLabel="서버 최신"
+                rightLabel="내 수정"
+              />
+              <div className="save-conflict-actions">
+                <button
+                  className="link"
+                  onClick={() => {
+                    if (confirm("내 수정을 버리고 서버 최신 내용을 불러올까요?")) {
+                      setWf(conflict.server);
+                      setConflict(null);
+                    }
+                  }}
+                >
+                  서버 최신 내용 불러오기
+                </button>
+                <button
+                  className="primary"
+                  disabled={saving}
+                  onClick={() => {
+                    if (confirm("서버의 다른 사용자 수정을 덮어쓸까요?")) void handleSave(true);
+                  }}
+                >
+                  내 수정으로 덮어쓰기 저장
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="muted">
+                다른 사용자가 이 워크플로우를 삭제했습니다. 내 내용으로 다시 저장(복원)하거나 편집을
+                취소하세요.
+              </p>
+              <div className="save-conflict-actions">
+                <button className="primary" disabled={saving} onClick={() => void handleSave(true)}>
+                  내 내용으로 다시 저장
+                </button>
+              </div>
+            </>
+          )}
+        </section>
+      ) : null}
 
       <section className="panel">
         <h3>기본 정보</h3>

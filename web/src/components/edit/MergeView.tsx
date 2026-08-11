@@ -337,14 +337,22 @@ function WorkflowSideBySide({ ours, theirs }: { ours: Workflow | null; theirs: W
 }
 
 // ---------------------------------------------------------------------------
-// JSON 라인 diff (좌: develop / 우: feature)
+// JSON 라인 diff (좌/우 비교 — 머지 충돌·동시 저장 충돌 화면에서 공용)
 // ---------------------------------------------------------------------------
-function DiffTable({ rows }: { rows: DiffRow[] }) {
+export function DiffTable({
+  rows,
+  leftLabel = "develop",
+  rightLabel = "feature",
+}: {
+  rows: DiffRow[];
+  leftLabel?: string;
+  rightLabel?: string;
+}) {
   return (
     <div className="diff-table-wrap">
       <div className="diff-table">
-        <div className="diff-col-head">develop</div>
-        <div className="diff-col-head">feature</div>
+        <div className="diff-col-head">{leftLabel}</div>
+        <div className="diff-col-head">{rightLabel}</div>
         {rows.map((r, i) => (
           <div key={i} className="diff-row" data-type={r.type}>
             <div className={`diff-cell left ${r.left ? r.type : "empty"}`}>

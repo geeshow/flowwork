@@ -62,7 +62,8 @@ EDIT = {"source": "edit"}
 
 def test_workflow_crud_roundtrip(client):
     wf = _wf("wf_demo", "계좌", "사용자관리", "데모")
-    assert client.put("/api/workflows/wf_demo", json=wf, params=EDIT).json() == {"status": "saved"}
+    saved = client.put("/api/workflows/wf_demo", json=wf, params=EDIT).json()
+    assert saved["status"] == "saved" and saved["version"]
 
     got = client.get("/api/workflows/wf_demo", params=EDIT).json()
     assert got["name"] == "데모"
@@ -71,7 +72,7 @@ def test_workflow_crud_roundtrip(client):
     listing = client.get("/api/workflows", params=EDIT).json()["workflows"]
     assert any(w["id"] == "wf_demo" for w in listing)
 
-    assert client.delete("/api/workflows/wf_demo", params=EDIT).json() == {"status": "deleted"}
+    assert client.delete("/api/workflows/wf_demo", params=EDIT).json()["status"] == "deleted"
     assert client.get("/api/workflows/wf_demo", params=EDIT).status_code == 404
 
 
@@ -89,6 +90,46 @@ def test_workflow_edit_save_invisible_in_prod(client):
     assert client.get("/api/workflows/wf_e", params=EDIT).status_code == 200
     assert client.get("/api/workflows/wf_e").status_code == 404
     assert client.get("/api/workflows").json()["workflows"] == []
+
+
+def test_workflow_save_version_conflict(client):
+    """동일 브랜치 동시 저장 — 낙관적 잠금(파일 해시 버전)으로 충돌을 감지한다."""
+    client.put("/api/workflows/wf_v", json=_wf("wf_v", "계좌", "개설", "버전"), params=EDIT)
+
+    # 두 사용자가 같은 버전을 조회
+    a = client.get("/api/workflows/wf_v", params=EDIT).json()
+    b = client.get("/api/workflows/wf_v", params=EDIT).json()
+    assert a["version"] and a["version"] == b["version"]
+
+    # A 먼저 저장 → 새 버전 반환
+    a["description"] = "A 수정"
+    ra = client.put("/api/workflows/wf_v", json=a, params=EDIT)
+    assert ra.status_code == 200 and ra.json()["version"] != a["version"]
+
+    # B는 이전 버전 기준 → 409 version_conflict (서버 현재 버전 포함)
+    b["description"] = "B 수정"
+    rb = client.put("/api/workflows/wf_v", json=b, params=EDIT)
+    assert rb.status_code == 409
+    detail = rb.json()["detail"]
+    assert detail["code"] == "version_conflict"
+    assert detail["current_version"] == ra.json()["version"]
+    # 충돌로 저장이 거부됐으니 A의 내용이 유지된다
+    assert client.get("/api/workflows/wf_v", params=EDIT).json()["description"] == "A 수정"
+
+    # 강제 저장(덮어쓰기)은 허용
+    assert client.put("/api/workflows/wf_v", json=b, params={**EDIT, "force": "true"}).status_code == 200
+    assert client.get("/api/workflows/wf_v", params=EDIT).json()["description"] == "B 수정"
+
+    # 조회 후 상대가 삭제한 경우도 충돌
+    c = client.get("/api/workflows/wf_v", params=EDIT).json()
+    client.delete("/api/workflows/wf_v", params=EDIT)
+    rc = client.put("/api/workflows/wf_v", json=c, params=EDIT)
+    assert rc.status_code == 409
+    assert rc.json()["detail"]["current_version"] is None
+
+    # 버전 없이 저장(신규 등록 경로)은 검사 없이 통과
+    fresh = _wf("wf_v", "계좌", "개설", "버전")
+    assert client.put("/api/workflows/wf_v", json=fresh, params=EDIT).status_code == 200
 
 
 def test_workflow_name_unique_within_domain_task(client):
@@ -122,7 +163,7 @@ def test_domain_color_roundtrip(client):
     # 기본은 빈 매핑
     assert client.get("/api/domains", params=EDIT).json() == {"colors": {}}
     # 유효한 hex 저장 후 조회
-    assert client.put("/api/domains/계좌", json={"color": "#f2b544"}, params=EDIT).json() == {"status": "saved"}
+    assert client.put("/api/domains/계좌", json={"color": "#f2b544"}, params=EDIT).json()["status"] == "saved"
     assert client.get("/api/domains", params=EDIT).json()["colors"] == {"계좌": "#f2b544"}
     # 덮어쓰기
     client.put("/api/domains/계좌", json={"color": "#4c8dff"}, params=EDIT)

@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -119,6 +120,19 @@ class DuplicateNameError(Exception):
     """같은 (도메인, 업무) 내에서 이름이 중복될 때."""
 
 
+class VersionConflictError(Exception):
+    """낙관적 잠금 충돌 — 조회 이후 다른 사용자가 같은 워크플로우를 저장/삭제함."""
+
+    def __init__(self, message: str, current_version: str | None):
+        super().__init__(message)
+        self.current_version = current_version
+
+
+def _file_version(path: Path) -> str:
+    """파일 내용 해시 — 낙관적 잠금 버전으로 사용."""
+    return hashlib.sha256(path.read_bytes()).hexdigest()[:12]
+
+
 def _workflow_path(domain: str, task: str, workflow_id: str, source: Source = "prod", branch: str | None = None) -> Path:
     return _workflows_dir(source, branch) / _safe(domain) / _safe(task) / f"{_safe(workflow_id)}.json"
 
@@ -146,22 +160,38 @@ def _name_conflict(domain: str, task: str, name: str, self_id: str, source: Sour
     return False
 
 
-async def save_workflow(wf: WorkflowFile, source: Source = "prod", branch: str | None = None) -> None:
+async def save_workflow(
+    wf: WorkflowFile, source: Source = "prod", branch: str | None = None, force: bool = False
+) -> str:
+    """저장 후 새 버전을 반환한다.
+
+    wf.version(조회 시점 버전)이 있으면 낙관적 잠금을 검사한다 — 그 사이 다른
+    사용자가 저장/삭제했으면 VersionConflictError. force=True면 검사 생략(덮어쓰기).
+    """
     if _name_conflict(wf.domain, wf.task, wf.name, wf.id, source, branch):
         raise DuplicateNameError(f"'{wf.domain}/{wf.task}'에 이미 '{wf.name}' 이름이 있습니다.")
 
     new_path = _workflow_path(wf.domain, wf.task, wf.id, source, branch)
     old_path = _find_path_by_id(wf.id, source, branch)
 
+    if not force and wf.version is not None:
+        if old_path is None:
+            raise VersionConflictError("다른 사용자가 이 워크플로우를 삭제했습니다.", None)
+        current = _file_version(old_path)
+        if current != wf.version:
+            raise VersionConflictError("다른 사용자가 이 워크플로우를 먼저 저장했습니다.", current)
+
     new_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = new_path.with_suffix(".json.tmp")
     async with aiofiles.open(tmp_path, "w", encoding="utf-8") as f:
-        await f.write(wf.model_dump_json(indent=2))
+        # version은 낙관적 잠금용 메타라 파일에는 저장하지 않는다
+        await f.write(wf.model_dump_json(indent=2, exclude={"version"}))
     tmp_path.replace(new_path)  # 원자적 교체
 
     # 도메인/업무가 바뀌어 경로가 달라졌으면 기존 파일 제거 (이동)
     if old_path is not None and old_path.resolve() != new_path.resolve():
         old_path.unlink(missing_ok=True)
+    return _file_version(new_path)
 
 
 async def load_workflow(workflow_id: str, source: Source = "prod", branch: str | None = None) -> WorkflowFile | None:
@@ -170,7 +200,9 @@ async def load_workflow(workflow_id: str, source: Source = "prod", branch: str |
         return None
     async with aiofiles.open(path, encoding="utf-8") as f:
         raw = await f.read()
-    return WorkflowFile.model_validate_json(raw)
+    wf = WorkflowFile.model_validate_json(raw)
+    wf.version = _file_version(path)  # 낙관적 잠금 기준 버전
+    return wf
 
 
 async def delete_workflow(workflow_id: str, source: Source = "prod", branch: str | None = None) -> bool:

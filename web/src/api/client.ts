@@ -11,19 +11,38 @@ import type {
 } from "../types/apic";
 import type { ProxyResult } from "../engine/runWorkflow";
 
+// 동일 브랜치 동시 저장 충돌 (낙관적 잠금) — 조회 이후 다른 사용자가 저장/삭제함
+export class VersionConflictError extends Error {
+  current_version: string | null;
+
+  constructor(message: string, currentVersion: string | null) {
+    super(message);
+    this.name = "VersionConflictError";
+    this.current_version = currentVersion;
+  }
+}
+
 async function req<T>(input: string, init?: RequestInit): Promise<T> {
   const res = await fetch(input, {
     ...init,
     headers: { "Content-Type": "application/json", ...init?.headers },
   });
   if (!res.ok) {
-    let detail = res.statusText;
+    let detail: unknown = res.statusText;
     try {
       detail = (await res.json()).detail ?? detail;
     } catch {
       /* ignore */
     }
-    throw new Error(`${res.status} ${detail}`);
+    if (
+      detail &&
+      typeof detail === "object" &&
+      (detail as { code?: string }).code === "version_conflict"
+    ) {
+      const d = detail as { message?: string; current_version?: string | null };
+      throw new VersionConflictError(d.message ?? "저장 충돌", d.current_version ?? null);
+    }
+    throw new Error(`${res.status} ${typeof detail === "string" ? detail : JSON.stringify(detail)}`);
   }
   return res.json() as Promise<T>;
 }
@@ -127,12 +146,13 @@ export const api = {
   getWorkflow: (id: string, source?: DataSource) =>
     req<Workflow>(`/api/workflows/${id}${src(source)}`),
 
-  // 등록/수정/삭제는 편집 worktree에서만 가능 (서버가 prod 쓰기를 403으로 거부)
-  saveWorkflow: (wf: Workflow) =>
-    req<{ status: string }>(`/api/workflows/${wf.id}${src("edit")}`, {
-      method: "PUT",
-      body: JSON.stringify(wf),
-    }),
+  // 등록/수정/삭제는 편집 worktree에서만 가능 (서버가 prod 쓰기를 403으로 거부).
+  // wf.version(조회 시점 버전)으로 동시 저장 충돌을 감지한다 — force면 덮어쓰기.
+  saveWorkflow: (wf: Workflow, opts?: { force?: boolean }) =>
+    req<{ status: string; version: string | null }>(
+      `/api/workflows/${wf.id}${src("edit")}${opts?.force ? "&force=true" : ""}`,
+      { method: "PUT", body: JSON.stringify(wf) },
+    ),
 
   deleteWorkflow: (id: string) =>
     req<{ status: string }>(`/api/workflows/${id}${src("edit")}`, { method: "DELETE" }),
