@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 def client(monkeypatch):
     tmp = tempfile.mkdtemp()
     monkeypatch.setenv("FLOWWORK_DATA_DIR", tmp)
+    monkeypatch.setenv("FLOWWORK_EDIT_DATA_DIR", tmp + "-edit")
     # config는 import 시점에 경로를 고정하므로, 모듈을 새로 로드해야 tmp가 반영된다.
     import importlib
 
@@ -55,64 +56,84 @@ def _wf(wf_id, domain, task, name):
     }
 
 
+# 등록/수정/삭제는 편집 worktree(source=edit)에서만 허용된다.
+EDIT = {"source": "edit"}
+
+
 def test_workflow_crud_roundtrip(client):
     wf = _wf("wf_demo", "계좌", "사용자관리", "데모")
-    assert client.put("/api/workflows/wf_demo", json=wf).json() == {"status": "saved"}
+    assert client.put("/api/workflows/wf_demo", json=wf, params=EDIT).json() == {"status": "saved"}
 
-    got = client.get("/api/workflows/wf_demo").json()
+    got = client.get("/api/workflows/wf_demo", params=EDIT).json()
     assert got["name"] == "데모"
     assert got["domain"] == "계좌" and got["task"] == "사용자관리"
 
-    listing = client.get("/api/workflows").json()["workflows"]
+    listing = client.get("/api/workflows", params=EDIT).json()["workflows"]
     assert any(w["id"] == "wf_demo" for w in listing)
 
-    assert client.delete("/api/workflows/wf_demo").json() == {"status": "deleted"}
-    assert client.get("/api/workflows/wf_demo").status_code == 404
+    assert client.delete("/api/workflows/wf_demo", params=EDIT).json() == {"status": "deleted"}
+    assert client.get("/api/workflows/wf_demo", params=EDIT).status_code == 404
+
+
+def test_workflow_write_to_prod_rejected(client):
+    """운영(prod) 데이터는 API로 직접 수정할 수 없다 — git 편집 플로우만 허용."""
+    wf = _wf("wf_p", "계좌", "개설", "운영쓰기")
+    assert client.put("/api/workflows/wf_p", json=wf, params={"source": "prod"}).status_code == 403
+    assert client.delete("/api/workflows/wf_p", params={"source": "prod"}).status_code == 403
+    assert client.put("/api/domains/계좌", json={"color": "#f2b544"}, params={"source": "prod"}).status_code == 403
+
+
+def test_workflow_edit_save_invisible_in_prod(client):
+    """편집 worktree 저장은 운영(prod) 목록에 나타나지 않는다 (트리 분리)."""
+    client.put("/api/workflows/wf_e", json=_wf("wf_e", "계좌", "개설", "편집만"), params=EDIT)
+    assert client.get("/api/workflows/wf_e", params=EDIT).status_code == 200
+    assert client.get("/api/workflows/wf_e").status_code == 404
+    assert client.get("/api/workflows").json()["workflows"] == []
 
 
 def test_workflow_name_unique_within_domain_task(client):
-    client.put("/api/workflows/id_a", json=_wf("id_a", "계좌", "개설", "계좌 개설"))
+    client.put("/api/workflows/id_a", json=_wf("id_a", "계좌", "개설", "계좌 개설"), params=EDIT)
     # 같은 도메인/업무에 같은 이름 → 409
-    dup = client.put("/api/workflows/id_b", json=_wf("id_b", "계좌", "개설", "계좌 개설"))
+    dup = client.put("/api/workflows/id_b", json=_wf("id_b", "계좌", "개설", "계좌 개설"), params=EDIT)
     assert dup.status_code == 409
     # 다른 업무면 같은 이름 허용
-    ok = client.put("/api/workflows/id_c", json=_wf("id_c", "계좌", "폐쇄", "계좌 개설"))
+    ok = client.put("/api/workflows/id_c", json=_wf("id_c", "계좌", "폐쇄", "계좌 개설"), params=EDIT)
     assert ok.status_code == 200
 
 
 def test_workflow_moves_file_on_domain_change(client):
-    client.put("/api/workflows/mv1", json=_wf("mv1", "계좌", "개설", "이동테스트"))
+    client.put("/api/workflows/mv1", json=_wf("mv1", "계좌", "개설", "이동테스트"), params=EDIT)
     # 도메인/업무를 바꿔 저장 → id는 그대로, 경로 이동
-    client.put("/api/workflows/mv1", json=_wf("mv1", "매매", "주문", "이동테스트"))
-    got = client.get("/api/workflows/mv1").json()
+    client.put("/api/workflows/mv1", json=_wf("mv1", "매매", "주문", "이동테스트"), params=EDIT)
+    got = client.get("/api/workflows/mv1", params=EDIT).json()
     assert got["domain"] == "매매" and got["task"] == "주문"
     # 목록에 중복 없이 한 건만
-    listing = client.get("/api/workflows").json()["workflows"]
+    listing = client.get("/api/workflows", params=EDIT).json()["workflows"]
     assert len([w for w in listing if w["id"] == "mv1"]) == 1
 
 
 def test_workflow_rejects_unsafe_segment(client):
     wf = _wf("x", "..", "t", "x")
-    resp = client.put("/api/workflows/x", json=wf)
+    resp = client.put("/api/workflows/x", json=wf, params=EDIT)
     assert resp.status_code == 400
 
 
 def test_domain_color_roundtrip(client):
     # 기본은 빈 매핑
-    assert client.get("/api/domains").json() == {"colors": {}}
+    assert client.get("/api/domains", params=EDIT).json() == {"colors": {}}
     # 유효한 hex 저장 후 조회
-    assert client.put("/api/domains/계좌", json={"color": "#f2b544"}).json() == {"status": "saved"}
-    assert client.get("/api/domains").json()["colors"] == {"계좌": "#f2b544"}
+    assert client.put("/api/domains/계좌", json={"color": "#f2b544"}, params=EDIT).json() == {"status": "saved"}
+    assert client.get("/api/domains", params=EDIT).json()["colors"] == {"계좌": "#f2b544"}
     # 덮어쓰기
-    client.put("/api/domains/계좌", json={"color": "#4c8dff"})
-    assert client.get("/api/domains").json()["colors"]["계좌"] == "#4c8dff"
+    client.put("/api/domains/계좌", json={"color": "#4c8dff"}, params=EDIT)
+    assert client.get("/api/domains", params=EDIT).json()["colors"]["계좌"] == "#4c8dff"
 
 
 def test_domain_color_rejects_non_hex(client):
-    assert client.put("/api/domains/계좌", json={"color": "blue"}).status_code == 400
-    assert client.put("/api/domains/계좌", json={"color": "#12"}).status_code == 400
+    assert client.put("/api/domains/계좌", json={"color": "blue"}, params=EDIT).status_code == 400
+    assert client.put("/api/domains/계좌", json={"color": "#12"}, params=EDIT).status_code == 400
     # 잘못된 값 저장 실패 후에도 매핑은 비어 있어야 한다
-    assert client.get("/api/domains").json() == {"colors": {}}
+    assert client.get("/api/domains", params=EDIT).json() == {"colors": {}}
 
 
 def test_catalog_search_indexes_api_collections(client):

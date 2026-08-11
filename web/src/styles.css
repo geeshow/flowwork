@@ -1950,3 +1950,436 @@ button.link {
 .error-text {
   color: var(--failed);
 }
+
+/* ==== 편집(git) 메뉴 ==================================================== */
+.edit-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.edit-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+}
+.edit-bar-left,
+.edit-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.edit-bar select,
+.edit-bar input {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 13px;
+}
+.edit-bar button.small {
+  padding: 6px 12px;
+  font-size: 13px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+.edit-bar button.small:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.branch-chip {
+  font-family: "SF Mono", ui-monospace, Menlo, monospace;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+}
+.branch-chip.base {
+  color: var(--muted);
+}
+.branch-chip.feature {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(76, 141, 255, 0.1);
+}
+.edit-newbranch,
+.edit-commit-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.edit-commit-form input {
+  min-width: 260px;
+}
+.merge-warn {
+  color: var(--running);
+  font-weight: 600;
+}
+.notice-banner {
+  background: rgba(53, 192, 127, 0.1);
+  border: 1px solid var(--success);
+  color: var(--success);
+  padding: 10px 14px;
+  border-radius: 8px;
+}
+
+/* 파일 상태 배지: 수정됨 → 스테이지 → 커밋됨 → 푸시됨 */
+.state-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.state-badge.st-unstaged {
+  color: var(--failed);
+  background: rgba(240, 97, 109, 0.14);
+}
+.state-badge.st-staged {
+  color: var(--running);
+  background: rgba(242, 181, 68, 0.14);
+}
+.state-badge.st-committed {
+  color: var(--accent);
+  background: rgba(76, 141, 255, 0.14);
+}
+.state-badge.st-pushed {
+  color: var(--success);
+  background: rgba(53, 192, 127, 0.14);
+}
+.change-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+.change-badge.change-a {
+  color: var(--success);
+  background: rgba(53, 192, 127, 0.14);
+}
+.change-badge.change-m {
+  color: var(--running);
+  background: rgba(242, 181, 68, 0.14);
+}
+.change-badge.change-d {
+  color: var(--failed);
+  background: rgba(240, 97, 109, 0.14);
+}
+.task-dot-changed {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--running);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* 홈: 변경/미반영 목록 */
+.edit-home {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.edit-file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.edit-file-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+.edit-file-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.edit-file-actions {
+  display: flex;
+  gap: 10px;
+}
+.small-text {
+  font-size: 12px;
+}
+.link.danger {
+  color: var(--failed);
+}
+
+/* 편집 업무 카드 (실행 클릭 + 수정/삭제 액션) */
+.wf-card-edit .wf-card-body {
+  text-align: left;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+.wf-card-edit .wf-card-actions {
+  gap: 12px;
+  border-top: 1px solid var(--border);
+  padding: 8px 14px;
+}
+
+/* ==== 머지 충돌 해결 ==================================================== */
+.merge-view {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.merge-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.merge-head h2 {
+  margin: 0;
+}
+.merge-head-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.conflict-card.resolved {
+  border-color: var(--success);
+}
+.conflict-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+.conflict-card-head h3 {
+  margin: 0 0 2px;
+}
+.conflict-resolved-mark {
+  color: var(--success);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.conflict-tabs {
+  display: flex;
+  gap: 6px;
+  margin: 12px 0;
+}
+.conflict-tabs button {
+  padding: 6px 14px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+}
+.conflict-tabs button.active {
+  color: var(--text);
+  border-color: var(--accent);
+  background: rgba(76, 141, 255, 0.1);
+}
+
+/* 워크플로우 좌우 시각 비교 */
+.wf-compare {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.wf-compare-col {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  background: var(--panel-2);
+  min-width: 0;
+}
+.wf-compare-col.ours {
+  border-top: 3px solid var(--muted);
+}
+.wf-compare-col.theirs {
+  border-top: 3px solid var(--accent);
+}
+.wf-compare-col-head {
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+.wf-compare-meta {
+  font-size: 13px;
+  padding: 3px 6px;
+  border-radius: 6px;
+  display: flex;
+  gap: 8px;
+}
+.wf-compare-meta.changed {
+  background: rgba(242, 181, 68, 0.12);
+}
+.wf-compare-steps {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.wf-compare-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  min-width: 0;
+}
+.wf-compare-step .step-order {
+  font-family: "SF Mono", ui-monospace, Menlo, monospace;
+  font-size: 12px;
+  color: var(--muted);
+  width: 16px;
+  text-align: right;
+  flex-shrink: 0;
+}
+.wf-compare-step .step-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wf-compare-step .step-kind {
+  font-size: 11px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.wf-compare-step .step-mark {
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.wf-compare-step.changed {
+  border-color: var(--running);
+}
+.wf-compare-step.changed .step-mark {
+  color: var(--running);
+}
+.wf-compare-col.ours .wf-compare-step.only {
+  border-color: var(--failed);
+}
+.wf-compare-col.ours .wf-compare-step.only .step-mark {
+  color: var(--failed);
+}
+.wf-compare-col.theirs .wf-compare-step.only {
+  border-color: var(--success);
+}
+.wf-compare-col.theirs .wf-compare-step.only .step-mark {
+  color: var(--success);
+}
+
+/* JSON 라인 diff (좌: develop / 우: feature) */
+.diff-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.diff-table {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  font-family: "SF Mono", ui-monospace, Menlo, monospace;
+  font-size: 12px;
+  min-width: 640px;
+}
+.diff-col-head {
+  padding: 8px 12px;
+  font-weight: 700;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+}
+.diff-row {
+  display: contents;
+}
+.diff-cell {
+  display: flex;
+  gap: 10px;
+  padding: 1px 12px;
+  white-space: pre;
+  min-width: 0;
+  overflow: hidden;
+}
+.diff-cell.left {
+  border-right: 1px solid var(--border);
+}
+.diff-cell code {
+  white-space: pre;
+}
+.diff-cell .diff-no {
+  color: var(--muted);
+  width: 34px;
+  text-align: right;
+  flex-shrink: 0;
+  user-select: none;
+}
+.diff-cell.del,
+.diff-cell.left.mod {
+  background: rgba(240, 97, 109, 0.12);
+}
+.diff-cell.add,
+.diff-cell.right.mod {
+  background: rgba(53, 192, 127, 0.12);
+}
+.diff-cell.empty {
+  background: rgba(122, 133, 149, 0.06);
+}
+
+/* 충돌 해결안 편집 */
+.conflict-resolver {
+  margin-top: 14px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.conflict-resolver-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.conflict-resolver-head h4 {
+  margin: 0;
+}
+.conflict-pick {
+  display: flex;
+  gap: 14px;
+}
+.conflict-editor {
+  width: 100%;
+  min-height: 260px;
+  margin-top: 10px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  font-family: "SF Mono", ui-monospace, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  resize: vertical;
+}
+.conflict-resolver-actions {
+  margin-top: 10px;
+  display: flex;
+  justify-content: flex-end;
+}

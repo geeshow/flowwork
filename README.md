@@ -24,7 +24,7 @@ n8n으로도 구현 가능한 영역이지만, 범용 그래프 편집기 특유
 flowwork/
 ├── server/                      # FastAPI — proxy, 워크플로우 CRUD, 실행 이력
 │   ├── main.py
-│   ├── app/                     # catalog(Postman·bruno), storage, redaction, secrets
+│   ├── app/                     # catalog(Postman·bruno), storage, gitops(브랜치·머지), redaction, secrets
 │   └── scripts/                 # seed / seed_groups / mock_upstream(:9100)
 ├── web/                         # 프론트엔드 (실행 엔진 + 등록/실행/이력 UI)
 │   └── src/
@@ -34,21 +34,27 @@ flowwork/
 └── docs/architecture.md
 ```
 
-### 데이터 저장소 (분리)
+### 데이터 저장소 (분리) — git 브랜치로 편집 관리
 
 워크플로우 설정 데이터는 소스코드와 분리해
 [geeshow/flowwork-workdata](https://github.com/geeshow/flowwork-workdata)에서 별도 버전 관리합니다.
 
 ```
-flowwork-workdata/                   # FLOWWORK_DATA_DIR가 가리키는 경로
+flowwork-workdata/               # FLOWWORK_DATA_DIR가 가리키는 경로 (master 체크아웃 = 운영)
 ├── workflows/                   # {도메인}/{업무}/{id}.json
 ├── api-collections/             # {workspace}/{collection-id}.json
 ├── domains.json                 # 도메인 → 팔레트 색상 id 매핑
 └── executions/                  # {execution_id}.jsonl (런타임 생성, git 제외)
+flowwork-workdata-edit/          # 편집용 worktree (서버가 자동 생성 — develop/feature 체크아웃)
 ```
 
+- **master** = 운영 데이터. "워크플로우" 메뉴(실행)는 항상 master 트리를 읽고, API로 직접 수정할 수 없다.
+- **develop** = 편집 기준. "편집" 메뉴는 편집 worktree(develop/feature 브랜치)를 읽는다.
+- **feature/*** = 수정 모드. 편집 메뉴에서 브랜치를 만들면 등록/수정 버튼이 활성화된다.
+
 `server/.env`에 `FLOWWORK_DATA_DIR=/path/to/flowwork-workdata`를 설정해 연결합니다
-(미설정 시 기본값 `server/data`).
+(미설정 시 기본값 `server/data`). 편집 worktree 경로는 `FLOWWORK_EDIT_DATA_DIR`
+(기본 `{FLOWWORK_DATA_DIR}-edit`)로 바꿀 수 있습니다.
 
 ## 실행 방법 (POC)
 
@@ -85,8 +91,8 @@ npm run dev        # http://localhost:5173 (→ :8000 프록시)
 ### 테스트
 
 ```bash
-cd server && pytest          # 서버 27 케이스
-cd web && npm test           # 실행 엔진 + 캐시 25 케이스
+cd server && pytest          # 서버 46 케이스 (git 편집 플로우 포함)
+cd web && npm test           # 실행 엔진 + 캐시 26 케이스
 ```
 
 ## 주요 기능
@@ -123,6 +129,15 @@ cd web && npm test           # 실행 엔진 + 캐시 25 케이스
 - 스텝이 성공하면 **다음 스텝 전에 추가 입력**을 받는다 — 실행이 그 자리에서 일시정지(폼) → "계속" → 재개
 - 입력값은 이후 스텝이 참조. 종류: **STEP_RESULT_COMBO**(방금 스텝 응답 배열에서 콤보 선택), MANUAL
 - 여러 스텝에서 순차로 수집 가능. 폼이 뜬 동안 그 스텝의 결과(표)를 함께 노출
+
+### 편집(git) — 코드처럼 리뷰·머지되는 워크플로우 데이터
+- **워크플로우 메뉴는 실행 전용** — 등록/수정은 "편집" 메뉴로 분리 (운영 master 트리는 API 쓰기 403)
+- **수정 모드** — 편집 메뉴에서 feature 브랜치 생성/선택 시 등록·수정·삭제 활성화
+- **커밋 전 로컬 임시 저장** — 저장은 편집 worktree 파일 쓰기라 서버 재시작에도 유지되고, 그 내용 그대로 실행해 동작 확인 가능
+- **파일 상태 배지** — develop 대비 `수정됨(unstaged) → 스테이지 → 커밋됨 → 푸시됨` 을 워크플로우별로 표시
+- **develop 머지** — 커밋 완료 후 버튼 한 번으로 --no-ff 머지(+push). 충돌 시 해결 화면 제공
+- **충돌 해결 화면** — develop/feature 두 버전을 **워크플로우 시각 비교(스텝 단위)** 와 **JSON 라인 diff** 로 좌우 비교하고, 해결안 JSON을 직접 편집해 확정 → 머지 커밋
+- **운영 미반영 목록** — master vs develop 비교로 아직 운영에 반영되지 않은 워크플로우 나열 (운영 반영은 develop → master 병합)
 
 ### 실행 & 워크플로우 이력
 - 실행 시 **유니크 URL(`/executions/{id}`) 생성·공유** — 해시 없는 History API 경로
@@ -163,6 +178,7 @@ cd web && npm test           # 실행 엔진 + 캐시 25 케이스
 | 등록/편집 UI — 스텝 편집·정렬, 카탈로그 검색, 변수 바인딩, 분기, 중간 입력, 결과 컬럼 | ✅ |
 | 워크플로우 이력 — 도메인→업무 메뉴, 공유 URL, 동일 렌더링, 입력값 기록 | ✅ |
 | 라우팅 — 해시 없는 History API 경로 (정적 호스팅 시 SPA fallback 필요) | ✅ |
+| 편집(git) — feature 브랜치 수정 모드, 상태 배지, develop 머지, 충돌 해결(시각 비교+diff), 운영 미반영 목록 | ✅ |
 | AI 워크플로우 추천, 권한 체크, 외부 Vault 연동, fan-out | ⏳ POC 이후 |
 
 ## API 명세 저장소

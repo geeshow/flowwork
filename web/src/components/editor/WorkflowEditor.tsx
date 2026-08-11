@@ -56,9 +56,11 @@ export function WorkflowEditor({ mode, id, initialDomain, initialTask, onSaved, 
   const [saving, setSaving] = useState(false);
   const [envOpen, setEnvOpen] = useState(false);
 
+  // 편집기는 항상 편집 worktree(source=edit) 기준으로 읽고 쓴다.
+  // 저장 = worktree 파일 쓰기 (커밋 전 로컬 임시 저장) — git 커밋/머지는 편집 메뉴에서.
   useEffect(() => {
     let alive = true;
-    Promise.all([api.searchCatalog(""), api.getEnvironments(), api.listWorkflows(), api.getDomainColors()])
+    Promise.all([api.searchCatalog(""), api.getEnvironments(), api.listWorkflows("edit"), api.getDomainColors("edit")])
       .then(([cat, envs, wfs, colors]) => {
         if (!alive) return;
         setEntries(cat.results);
@@ -76,7 +78,7 @@ export function WorkflowEditor({ mode, id, initialDomain, initialTask, onSaved, 
     if (mode !== "edit" || !id) return;
     let alive = true;
     api
-      .getWorkflow(id)
+      .getWorkflow(id, "edit")
       .then((w) => alive && setWf(w))
       .catch((e) => alive && setError((e as Error).message));
     return () => {

@@ -36,6 +36,64 @@ export interface WorkflowSummary {
   description?: string;
 }
 
+// 데이터 소스: prod(운영 master 트리) | edit(편집 worktree — develop/feature 브랜치)
+export type DataSource = "prod" | "edit";
+
+const src = (source?: DataSource) => (source === "edit" ? "?source=edit" : "");
+
+// ---- 편집(git) 타입 ----
+export interface EditState {
+  current_branch: string;
+  base_branch: string;
+  prod_branch: string;
+  feature_branches: string[];
+  dirty: boolean;
+  in_merge: boolean;
+}
+
+export type FileState = "unstaged" | "staged" | "committed" | "pushed";
+
+export interface EditFileEntry {
+  path: string;
+  kind: "workflow" | "file";
+  state: FileState;
+  change: "A" | "M" | "D";
+  id?: string;
+  domain?: string;
+  task?: string;
+  name?: string;
+}
+
+export interface PendingEntry {
+  path: string;
+  kind: "workflow" | "file";
+  change: "A" | "M" | "D";
+  id?: string;
+  domain?: string;
+  task?: string;
+  name?: string;
+}
+
+export interface ConflictFile {
+  path: string;
+  kind: "workflow" | "file";
+  id?: string;
+  domain?: string;
+  task?: string;
+  name?: string;
+  base: string | null;
+  ours: string | null; // develop 쪽
+  theirs: string | null; // feature 쪽
+  merged: string | null; // 충돌 마커 포함 현재 내용
+}
+
+export interface MergeResult {
+  status: "merged" | "conflict";
+  source_branch?: string;
+  pushed?: boolean;
+  files?: string[];
+}
+
 export interface ExecutionSummary {
   execution_id: string;
   step_count: number;
@@ -45,19 +103,23 @@ export interface ExecutionSummary {
 }
 
 export const api = {
-  listWorkflows: () =>
-    req<{ workflows: WorkflowSummary[] }>("/api/workflows").then((r) => r.workflows),
+  listWorkflows: (source?: DataSource) =>
+    req<{ workflows: WorkflowSummary[] }>(`/api/workflows${src(source)}`).then(
+      (r) => r.workflows,
+    ),
 
-  getWorkflow: (id: string) => req<Workflow>(`/api/workflows/${id}`),
+  getWorkflow: (id: string, source?: DataSource) =>
+    req<Workflow>(`/api/workflows/${id}${src(source)}`),
 
+  // 등록/수정/삭제는 편집 worktree에서만 가능 (서버가 prod 쓰기를 403으로 거부)
   saveWorkflow: (wf: Workflow) =>
-    req<{ status: string }>(`/api/workflows/${wf.id}`, {
+    req<{ status: string }>(`/api/workflows/${wf.id}?source=edit`, {
       method: "PUT",
       body: JSON.stringify(wf),
     }),
 
   deleteWorkflow: (id: string) =>
-    req<{ status: string }>(`/api/workflows/${id}`, { method: "DELETE" }),
+    req<{ status: string }>(`/api/workflows/${id}?source=edit`, { method: "DELETE" }),
 
   searchCatalog: (q = "") =>
     req<{ results: CatalogEntry[]; catalog_version: string | null }>(
@@ -68,14 +130,79 @@ export const api = {
     req<{ values: EnvironmentValues }>("/api/catalog/environments").then((r) => r.values),
 
   // 도메인 → 팔레트 색상 id 매핑
-  getDomainColors: () =>
-    req<{ colors: Record<string, string> }>("/api/domains").then((r) => r.colors),
+  getDomainColors: (source?: DataSource) =>
+    req<{ colors: Record<string, string> }>(`/api/domains${src(source)}`).then((r) => r.colors),
 
   setDomainColor: (domain: string, color: string) =>
-    req<{ status: string }>(`/api/domains/${encodeURIComponent(domain)}`, {
+    req<{ status: string }>(`/api/domains/${encodeURIComponent(domain)}?source=edit`, {
       method: "PUT",
       body: JSON.stringify({ color }),
     }),
+
+  // ---- 편집(git) — 브랜치/상태/커밋/머지/충돌 ----
+  editState: () => req<EditState>("/api/edit/state"),
+
+  editStatus: () =>
+    req<{ branch: string; files: EditFileEntry[] }>("/api/edit/status"),
+
+  editCreateBranch: (name: string) =>
+    req<{ branch: string }>("/api/edit/branches", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
+
+  editCheckout: (name: string) =>
+    req<{ branch: string }>("/api/edit/checkout", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
+
+  editStage: (paths?: string[]) =>
+    req<{ status: string }>("/api/edit/stage", {
+      method: "POST",
+      body: JSON.stringify({ paths: paths ?? null }),
+    }),
+
+  editUnstage: (paths?: string[]) =>
+    req<{ status: string }>("/api/edit/unstage", {
+      method: "POST",
+      body: JSON.stringify({ paths: paths ?? null }),
+    }),
+
+  editDiscard: (paths: string[]) =>
+    req<{ status: string }>("/api/edit/discard", {
+      method: "POST",
+      body: JSON.stringify({ paths }),
+    }),
+
+  editCommit: (message: string, stageAll = true) =>
+    req<{ commit: string }>("/api/edit/commit", {
+      method: "POST",
+      body: JSON.stringify({ message, stage_all: stageAll }),
+    }),
+
+  editPush: () => req<{ branch: string; pushed: boolean }>("/api/edit/push", { method: "POST" }),
+
+  editMerge: () => req<MergeResult>("/api/edit/merge", { method: "POST" }),
+
+  editConflicts: () =>
+    req<{ in_merge: boolean; source_branch: string | null; files: ConflictFile[] }>(
+      "/api/edit/conflicts",
+    ),
+
+  editResolveConflict: (path: string, content: string) =>
+    req<{ status: string }>("/api/edit/conflicts/resolve", {
+      method: "POST",
+      body: JSON.stringify({ path, content }),
+    }),
+
+  editMergeContinue: () =>
+    req<{ status: string; pushed: boolean }>("/api/edit/merge/continue", { method: "POST" }),
+
+  editMergeAbort: () => req<{ status: string }>("/api/edit/merge/abort", { method: "POST" }),
+
+  editPending: () =>
+    req<{ prod_branch: string; base_branch: string; files: PendingEntry[] }>("/api/edit/pending"),
 
   listExecutions: () =>
     req<{ executions: ExecutionSummary[] }>("/api/executions").then((r) => r.executions),

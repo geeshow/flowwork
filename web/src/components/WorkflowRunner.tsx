@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { api, type WorkflowSummary } from "../api/client";
+import { api, type DataSource, type WorkflowSummary } from "../api/client";
 import { makeTemplateResolver, refKey } from "../engine/catalogLookup";
 import { runWorkflow, type RunDeps } from "../engine/runWorkflow";
 import type {
@@ -19,9 +19,11 @@ import { StepInputForm } from "./StepInputForm";
 interface Props {
   workflow: Workflow;
   onOpenExecution: (executionId: string) => void;
+  // edit이면 편집 worktree(커밋 전 임시 저장 포함) 기준으로 실행한다
+  source?: DataSource;
 }
 
-export function WorkflowRunner({ workflow, onOpenExecution }: Props) {
+export function WorkflowRunner({ workflow, onOpenExecution, source = "prod" }: Props) {
   const [catalog, setCatalog] = useState<CatalogEntry[]>([]);
   const [env, setEnv] = useState<EnvironmentValues>({});
   const [summaries, setSummaries] = useState<WorkflowSummary[]>([]);
@@ -46,7 +48,7 @@ export function WorkflowRunner({ workflow, onOpenExecution }: Props) {
 
   useEffect(() => {
     let alive = true;
-    Promise.all([api.searchCatalog(""), api.getEnvironments(), api.listWorkflows()])
+    Promise.all([api.searchCatalog(""), api.getEnvironments(), api.listWorkflows(source)])
       .then(([cat, envs, wfs]) => {
         if (!alive) return;
         setCatalog(cat.results);
@@ -58,7 +60,7 @@ export function WorkflowRunner({ workflow, onOpenExecution }: Props) {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [source]);
 
   // 기본 입력값(워크플로우 레벨)이 곧 실행 엔진의 userInputs가 된다
   const allInputs = workflow.baseInputs;
@@ -84,7 +86,7 @@ export function WorkflowRunner({ workflow, onOpenExecution }: Props) {
       getWorkflow: async (id) => {
         const cached = wfCache.get(id);
         if (cached) return cached;
-        const wf = await api.getWorkflow(id);
+        const wf = await api.getWorkflow(id, source);
         wfCache.set(id, wf);
         return wf;
       },

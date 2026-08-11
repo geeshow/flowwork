@@ -44,7 +44,7 @@ export function WorkflowLinkEditor({
     setLoadingKeys(true);
     setKeyError(null);
     api
-      .getWorkflow(targetId)
+      .getWorkflow(targetId, "edit")
       .then((wf) => {
         if (!alive) return;
         setTargetInputKeys(wf.baseInputs.map((i) => i.key).filter(Boolean));

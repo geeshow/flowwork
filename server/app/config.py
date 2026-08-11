@@ -21,6 +21,15 @@ EXECUTIONS_DIR = DATA_DIR / "executions"
 COLLECTIONS_DIR = DATA_DIR / "api-collections"  # API 콜렉션 (workspace/collection)
 DOMAINS_FILE = DATA_DIR / "domains.json"  # 도메인 → 팔레트 색상 id 매핑
 
+# 편집용 git worktree — DATA_DIR(git 저장소, master=운영)의 develop/feature 브랜치를
+# 체크아웃해 두는 별도 작업 트리. 편집 메뉴의 저장은 여기에 쓰이고(=커밋 전 로컬
+# 임시 저장), 커밋/머지도 여기서 수행한다. 운영(master) 트리는 건드리지 않는다.
+EDIT_DATA_DIR = Path(os.environ.get("FLOWWORK_EDIT_DATA_DIR", f"{DATA_DIR}-edit"))
+
+# 편집 브랜치 체계
+PROD_BRANCH = os.environ.get("FLOWWORK_PROD_BRANCH", "master")
+EDIT_BASE_BRANCH = os.environ.get("FLOWWORK_EDIT_BASE_BRANCH", "develop")
+
 PROXY_TIMEOUT_SECONDS = float(os.environ.get("FLOWWORK_PROXY_TIMEOUT", "15.0"))
 
 

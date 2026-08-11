@@ -12,8 +12,28 @@ from typing import Any
 
 import aiofiles
 
-from .config import DOMAINS_FILE, EXECUTIONS_DIR, WORKFLOWS_DIR
+from .config import DATA_DIR, EDIT_DATA_DIR, EXECUTIONS_DIR
 from .models import WorkflowFile, WorkflowSummary
+
+# 데이터 소스: "prod"(운영 트리 = master 체크아웃) | "edit"(편집 worktree).
+# 실행 이력은 소스와 무관하게 운영 트리의 executions/에만 쌓인다.
+Source = str
+
+
+def data_root(source: Source = "prod") -> Path:
+    if source == "edit":
+        return EDIT_DATA_DIR
+    if source == "prod":
+        return DATA_DIR
+    raise ValueError(f"알 수 없는 데이터 소스입니다: {source!r}")
+
+
+def _workflows_dir(source: Source) -> Path:
+    return data_root(source) / "workflows"
+
+
+def _domains_file(source: Source) -> Path:
+    return data_root(source) / "domains.json"
 
 # 도메인 색상은 임의의 hex 색상을 허용한다 (#rgb 또는 #rrggbb).
 _HEX_COLOR = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
@@ -89,20 +109,21 @@ class DuplicateNameError(Exception):
     """같은 (도메인, 업무) 내에서 이름이 중복될 때."""
 
 
-def _workflow_path(domain: str, task: str, workflow_id: str) -> Path:
-    return WORKFLOWS_DIR / _safe(domain) / _safe(task) / f"{_safe(workflow_id)}.json"
+def _workflow_path(domain: str, task: str, workflow_id: str, source: Source = "prod") -> Path:
+    return _workflows_dir(source) / _safe(domain) / _safe(task) / f"{_safe(workflow_id)}.json"
 
 
-def _find_path_by_id(workflow_id: str) -> Path | None:
+def _find_path_by_id(workflow_id: str, source: Source = "prod") -> Path | None:
     """id(=파일명)로 기존 파일 경로를 찾는다 (도메인/업무 무관)."""
-    if not WORKFLOWS_DIR.exists():
+    root = _workflows_dir(source)
+    if not root.exists():
         return None
-    return next(WORKFLOWS_DIR.glob(f"*/*/{_safe(workflow_id)}.json"), None)
+    return next(root.glob(f"*/*/{_safe(workflow_id)}.json"), None)
 
 
-def _name_conflict(domain: str, task: str, name: str, self_id: str) -> bool:
+def _name_conflict(domain: str, task: str, name: str, self_id: str, source: Source = "prod") -> bool:
     """같은 (도메인, 업무)에 동일 name을 가진 다른 워크플로우가 있는지."""
-    folder = WORKFLOWS_DIR / _safe(domain) / _safe(task)
+    folder = _workflows_dir(source) / _safe(domain) / _safe(task)
     if not folder.exists():
         return False
     for path in folder.glob("*.json"):
@@ -115,12 +136,12 @@ def _name_conflict(domain: str, task: str, name: str, self_id: str) -> bool:
     return False
 
 
-async def save_workflow(wf: WorkflowFile) -> None:
-    if _name_conflict(wf.domain, wf.task, wf.name, wf.id):
+async def save_workflow(wf: WorkflowFile, source: Source = "prod") -> None:
+    if _name_conflict(wf.domain, wf.task, wf.name, wf.id, source):
         raise DuplicateNameError(f"'{wf.domain}/{wf.task}'에 이미 '{wf.name}' 이름이 있습니다.")
 
-    new_path = _workflow_path(wf.domain, wf.task, wf.id)
-    old_path = _find_path_by_id(wf.id)
+    new_path = _workflow_path(wf.domain, wf.task, wf.id, source)
+    old_path = _find_path_by_id(wf.id, source)
 
     new_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = new_path.with_suffix(".json.tmp")
@@ -133,8 +154,8 @@ async def save_workflow(wf: WorkflowFile) -> None:
         old_path.unlink(missing_ok=True)
 
 
-async def load_workflow(workflow_id: str) -> WorkflowFile | None:
-    path = _find_path_by_id(workflow_id)
+async def load_workflow(workflow_id: str, source: Source = "prod") -> WorkflowFile | None:
+    path = _find_path_by_id(workflow_id, source)
     if path is None:
         return None
     async with aiofiles.open(path, encoding="utf-8") as f:
@@ -142,8 +163,8 @@ async def load_workflow(workflow_id: str) -> WorkflowFile | None:
     return WorkflowFile.model_validate_json(raw)
 
 
-async def delete_workflow(workflow_id: str) -> bool:
-    path = _find_path_by_id(workflow_id)
+async def delete_workflow(workflow_id: str, source: Source = "prod") -> bool:
+    path = _find_path_by_id(workflow_id, source)
     if path is None:
         return False
     path.unlink()
@@ -153,11 +174,12 @@ async def delete_workflow(workflow_id: str) -> bool:
 # ---------------------------------------------------------------------------
 # 도메인 색상 — data/domains.json에 { "<도메인>": "<팔레트 id>" } 로 저장
 # ---------------------------------------------------------------------------
-def load_domain_colors() -> dict[str, str]:
-    if not DOMAINS_FILE.exists():
+def load_domain_colors(source: Source = "prod") -> dict[str, str]:
+    domains_file = _domains_file(source)
+    if not domains_file.exists():
         return {}
     try:
-        data = json.loads(DOMAINS_FILE.read_text(encoding="utf-8"))
+        data = json.loads(domains_file.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return {}
     if not isinstance(data, dict):
@@ -165,24 +187,26 @@ def load_domain_colors() -> dict[str, str]:
     return {str(k): str(v) for k, v in data.items() if _HEX_COLOR.match(str(v))}
 
 
-def set_domain_color(domain: str, color: str) -> dict[str, str]:
+def set_domain_color(domain: str, color: str, source: Source = "prod") -> dict[str, str]:
     _safe(domain)  # 도메인명 검증 (traversal/이상문자 차단)
     if not _HEX_COLOR.match(color):
         raise ValueError(f"허용되지 않는 색상입니다(#rgb/#rrggbb): {color!r}")
-    colors = load_domain_colors()
+    domains_file = _domains_file(source)
+    colors = load_domain_colors(source)
     colors[domain] = color
-    DOMAINS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    tmp = DOMAINS_FILE.with_suffix(".json.tmp")
+    domains_file.parent.mkdir(parents=True, exist_ok=True)
+    tmp = domains_file.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(colors, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp.replace(DOMAINS_FILE)
+    tmp.replace(domains_file)
     return colors
 
 
-def list_workflows() -> list[WorkflowSummary]:
-    if not WORKFLOWS_DIR.exists():
+def list_workflows(source: Source = "prod") -> list[WorkflowSummary]:
+    root = _workflows_dir(source)
+    if not root.exists():
         return []
     out: list[WorkflowSummary] = []
-    for path in sorted(WORKFLOWS_DIR.glob("*/*/*.json")):
+    for path in sorted(root.glob("*/*/*.json")):
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
