@@ -15,10 +15,8 @@ dist/
 *.local
 *.tsbuildinfo
 
-# Runtime data (generated)
-server/data/workflows/
-server/data/executions/
-server/data/domains.json
+# 워크플로우 설정·런타임 데이터 — 별도 저장소로 분리 (github.com/geeshow/flowwork-jobs)
+server/data/
 
 # Env / secrets
 .env

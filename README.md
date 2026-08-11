@@ -25,14 +25,7 @@ flowwork/
 ├── server/                      # FastAPI — proxy, 워크플로우 CRUD, 실행 이력
 │   ├── main.py
 │   ├── app/                     # catalog(Postman·bruno), storage, redaction, secrets
-│   ├── scripts/                 # seed / seed_groups / mock_upstream(:9100)
-│   └── data/
-│       ├── workflows/           # {도메인}/{업무}/{id}.json
-│       ├── api-catalog/
-│       │   ├── environments/    # *.postman_environment.json / *.bru
-│       │   ├── core/            # Bruno 컬렉션 (bruno.json + 폴더/*.bru)
-│       │   └── {부서}/*.postman_collection.json
-│       └── executions/          # {execution_id}.jsonl (append-only, 입력값·스텝 로그)
+│   └── scripts/                 # seed / seed_groups / mock_upstream(:9100)
 ├── web/                         # 프론트엔드 (실행 엔진 + 등록/실행/이력 UI)
 │   └── src/
 │       ├── engine/              # resolver, template, branch, runWorkflow, comboCache
@@ -40,6 +33,22 @@ flowwork/
 │       └── types/
 └── docs/architecture.md
 ```
+
+### 데이터 저장소 (분리)
+
+워크플로우 설정 데이터는 소스코드와 분리해
+[geeshow/flowwork-jobs](https://github.com/geeshow/flowwork-jobs)에서 별도 버전 관리합니다.
+
+```
+flowwork-jobs/                   # FLOWWORK_DATA_DIR가 가리키는 경로
+├── workflows/                   # {도메인}/{업무}/{id}.json
+├── api-collections/             # {workspace}/{collection-id}.json
+├── domains.json                 # 도메인 → 팔레트 색상 id 매핑
+└── executions/                  # {execution_id}.jsonl (런타임 생성, git 제외)
+```
+
+`server/.env`에 `FLOWWORK_DATA_DIR=/path/to/flowwork-jobs`를 설정해 연결합니다
+(미설정 시 기본값 `server/data`).
 
 ## 실행 방법 (POC)
 
