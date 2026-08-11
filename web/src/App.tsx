@@ -13,7 +13,7 @@ type Route =
   | { view: "workflows" }
   | { view: "task"; domain: string; task: string }
   | { view: "run"; id: string }
-  | { view: "editor"; page: EditorPage }
+  | { view: "editor"; page: EditorPage; branch?: string }
   | { view: "history"; domain?: string; task?: string }
   | { view: "execution"; executionId: string }
   | { view: "apic"; ws?: string };
@@ -36,13 +36,27 @@ function parseLocation(): Route {
   if (head === "t" && a && b) return { view: "task", domain: dec(a)!, task: dec(b)! };
   if (head === "apic") return { view: "apic", ws: dec(a) };
   if (head === "editor") {
-    if (a === "t" && b && parts[3])
-      return { view: "editor", page: { kind: "task", domain: dec(b)!, task: dec(parts[3])! } };
-    if (a === "run" && b) return { view: "editor", page: { kind: "run", id: b } };
-    if (a === "new") return { view: "editor", page: { kind: "new", domain: dec(b), task: dec(parts[3]) } };
-    if (a === "edit" && b) return { view: "editor", page: { kind: "edit", id: b } };
-    if (a === "merge") return { view: "editor", page: { kind: "merge" } };
-    return { view: "editor", page: { kind: "home" } };
+    // 수정 모드는 브랜치를 URL에 담는다: /editor/b/{branch}/… (없으면 develop 기본)
+    let branch: string | undefined;
+    let rest = parts.slice(1);
+    if (rest[0] === "b" && rest[1]) {
+      branch = dec(rest[1]);
+      rest = rest.slice(2);
+    }
+    const [p0, p1, p2] = rest;
+    const page: EditorPage =
+      p0 === "t" && p1 && p2
+        ? { kind: "task", domain: dec(p1)!, task: dec(p2)! }
+        : p0 === "run" && p1
+          ? { kind: "run", id: p1 }
+          : p0 === "new"
+            ? { kind: "new", domain: dec(p1), task: dec(p2) }
+            : p0 === "edit" && p1
+              ? { kind: "edit", id: p1 }
+              : p0 === "merge"
+                ? { kind: "merge" }
+                : { kind: "home" };
+    return { view: "editor", page, branch };
   }
   if (head === "history") {
     if (a === "t" && b && parts[3]) return { view: "history", domain: dec(b), task: dec(parts[3]) };
@@ -121,7 +135,7 @@ export default function App() {
             )}
           </WorkflowLayout>
         ) : null}
-        {route.view === "editor" ? <EditPage page={route.page} go={go} /> : null}
+        {route.view === "editor" ? <EditPage page={route.page} branch={route.branch} go={go} /> : null}
         {route.view === "history" ? (
           <WorkflowLayout
             title="워크플로우 이력"

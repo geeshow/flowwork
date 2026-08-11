@@ -436,6 +436,26 @@ async def edit_discard(body: PathsBody) -> dict:
     return {"status": "discarded"}
 
 
+@app.post("/api/edit/discard-all")
+async def edit_discard_all() -> dict:
+    """커밋 전 변경 전체 초기화 (프론트가 드래프트 스냅샷 후 호출)."""
+    _edit_op(gitops.discard_all)
+    return {"status": "discarded"}
+
+
+@app.get("/api/edit/file")
+async def edit_read_file(path: str) -> dict:
+    """편집 worktree 파일 내용 — 워크플로우 외 일반 파일(domains.json 등) 드래프트 스냅샷용."""
+    return {"path": path, "content": _edit_op(gitops.read_file, path)}
+
+
+@app.post("/api/edit/file")
+async def edit_write_file(body: ResolveBody) -> dict:
+    """편집 worktree 파일 쓰기 — 드래프트 복원용."""
+    _edit_op(gitops.write_file, body.path, body.content)
+    return {"status": "saved"}
+
+
 @app.post("/api/edit/commit")
 async def edit_commit(body: CommitBody) -> dict:
     return {"commit": _edit_op(gitops.commit, body.message, body.stage_all)}
@@ -476,6 +496,12 @@ async def edit_merge_abort() -> dict:
 @app.get("/api/edit/pending")
 async def edit_pending() -> dict:
     return _edit_op(gitops.pending_for_prod)
+
+
+@app.post("/api/edit/release")
+async def edit_release() -> dict:
+    """develop → master(운영) 병합 + push. 워크플로우 인덱스는 파일 기반이라 즉시 반영된다."""
+    return _edit_op(gitops.release_to_prod)
 
 
 @app.get("/api/health")

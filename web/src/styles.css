@@ -2383,3 +2383,21 @@ button.link {
   display: flex;
   justify-content: flex-end;
 }
+
+/* 사이드바 상태 표시 — 업무: 상태 배지 / 도메인(상위): 노란 점 */
+.state-badge.sm {
+  font-size: 10px;
+  padding: 1px 6px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.task-item .state-badge.sm {
+  margin-left: auto;
+}
+.domain-dot-changed {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--running);
+  flex-shrink: 0;
+}

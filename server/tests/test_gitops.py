@@ -176,6 +176,25 @@ def test_merge_conflict_resolve_flow(client):
     assert client.get("/api/edit/state").json()["in_merge"] is False
 
 
+def test_release_to_prod(client):
+    """develop → master 운영 반영: 병합 + push, 이후 운영 목록/미반영 목록 갱신."""
+    # 변경이 없으면 거부
+    assert client.post("/api/edit/release").status_code == 409
+
+    # feature에서 수정 → develop 머지
+    client.post("/api/edit/branches", json={"name": "rel"})
+    client.put("/api/workflows/wf_rel", json=_wf("wf_rel", "릴리스 테스트"), params=EDIT)
+    client.post("/api/edit/commit", json={"message": "릴리스 대상"})
+    assert client.post("/api/edit/merge").json()["status"] == "merged"
+    assert len(client.get("/api/edit/pending").json()["files"]) == 1
+
+    # 운영 반영 → 운영(prod) 목록에 나타나고 미반영 목록은 빈다
+    r = client.post("/api/edit/release").json()
+    assert r["status"] == "released" and r["pushed"] is True
+    assert client.get("/api/workflows/wf_rel").status_code == 200
+    assert client.get("/api/edit/pending").json()["files"] == []
+
+
 def test_merge_abort_restores(client):
     # 충돌 상황 구성 (위 테스트와 동일 패턴 축약)
     client.post("/api/edit/branches", json={"name": "x"})

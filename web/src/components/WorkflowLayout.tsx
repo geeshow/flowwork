@@ -36,6 +36,7 @@ export function WorkflowLayout({
   activeTask,
   onOpenTask,
   taskBadge,
+  domainBadge,
   children,
 }: {
   title?: string;
@@ -46,6 +47,7 @@ export function WorkflowLayout({
   activeTask?: { domain: string; task: string };
   onOpenTask: (domain: string, task: string) => void;
   taskBadge?: (domain: string, task: string) => ReactNode; // 업무 항목 우측 배지 (편집 상태 표시용)
+  domainBadge?: (domain: string) => ReactNode; // 도메인 헤더 우측 표시 (하위 변경 알림 점)
   children: ReactNode;
 }) {
   const [rows, setRows] = useState<WorkflowSummary[] | null>(null);
@@ -192,6 +194,7 @@ export function WorkflowLayout({
                     <span className="domain-caret">{open ? "▾" : "▸"}</span>
                     <span className="domain-swatch" style={{ background: color }} />
                     <span className="domain-name">{domain}</span>
+                    {domainBadge?.(domain)}
                     <span className="domain-count">{tasks.length}</span>
                   </button>
                   {open ? (

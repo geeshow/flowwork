@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   api,
@@ -13,6 +13,15 @@ import type { Workflow } from "../../types";
 import { WorkflowEditor } from "../editor/WorkflowEditor";
 import { WorkflowLayout } from "../WorkflowLayout";
 import { WorkflowRunner } from "../WorkflowRunner";
+import {
+  clearDrafts,
+  draftCount,
+  loadDrafts,
+  putDraftDeletion,
+  putDraftFile,
+  putDraftWorkflow,
+  removeDraft,
+} from "./drafts";
 import { MergeView } from "./MergeView";
 
 export type EditorPage =
@@ -30,31 +39,42 @@ export const FILE_STATE_META: Record<FileState, { label: string; cls: string }> 
   pushed: { label: "푸시됨", cls: "st-pushed" },
 };
 
+// 상태 우선순위 (업무 단위 집계 시 가장 앞선 것 표시)
+const STATE_PRIORITY: FileState[] = ["unstaged", "staged", "committed", "pushed"];
+
 const CHANGE_LABEL: Record<string, string> = { A: "추가", M: "수정", D: "삭제" };
 
-const editTaskPath = (domain: string, task: string) =>
-  `/editor/t/${encodeURIComponent(domain)}/${encodeURIComponent(task)}`;
-const editNewPath = (domain?: string, task?: string) => {
-  if (domain && task) return `/editor/new/${encodeURIComponent(domain)}/${encodeURIComponent(task)}`;
-  if (domain) return `/editor/new/${encodeURIComponent(domain)}`;
-  return "/editor/new";
-};
+const branchPath = (branch?: string | null) =>
+  branch ? `/editor/b/${encodeURIComponent(branch)}` : "/editor";
 
 /**
  * 편집 메뉴 — 편집 worktree(develop/feature 브랜치)의 워크플로우를 다룬다.
  *
- * - develop 뷰: 읽기 전용. feature 브랜치 생성/선택으로 "수정 모드" 진입
- * - 수정 모드(feature): 등록/수정/실행 가능. 저장은 커밋 전 로컬 임시 저장(worktree)
+ * - 수정 모드 브랜치는 URL에 담는다: /editor/b/{branch}/… (없으면 develop 기본)
+ * - 편집 메뉴 재진입(/editor) 시 서버 worktree를 develop으로 되돌린다. 이때 커밋 전
+ *   변경은 브라우저 localStorage 드래프트로 스냅샷 → 같은 브랜치로 다시 들어오면 복원
  * - 파일 상태: develop 대비 수정됨(unstaged) → 스테이지 → 커밋됨 → 푸시됨
- * - develop 머지(충돌 시 해결 화면), master(운영) 미반영 목록 표시
+ * - develop 머지(충돌 시 해결 화면), develop → master 운영 반영, 운영 미반영 목록
  */
-export function EditPage({ page, go }: { page: EditorPage; go: (path: string) => void }) {
+export function EditPage({
+  page,
+  branch,
+  go,
+}: {
+  page: EditorPage;
+  branch?: string;
+  go: (path: string) => void;
+}) {
   const [st, setSt] = useState<EditState | null>(null);
   const [files, setFiles] = useState<EditFileEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
   const bump = useCallback(() => setRefresh((n) => n + 1), []);
+  const reconciling = useRef(false);
+
+  const urlBranch = branch ?? null; // null = develop 기본
+  const bp = branchPath(urlBranch);
 
   useEffect(() => {
     let alive = true;
@@ -71,20 +91,105 @@ export function EditPage({ page, go }: { page: EditorPage; go: (path: string) =>
     };
   }, [refresh]);
 
+  // ---- 서버 worktree 브랜치를 URL과 일치시킨다 -----------------------------
+  // URL에 브랜치가 없으면 develop으로 복귀. 이때 커밋 전 변경은 드래프트로 보관.
+  useEffect(() => {
+    if (!st || reconciling.current || st.in_merge) return;
+    const want = urlBranch ?? st.base_branch;
+
+    async function snapshotAndReset(cur: string) {
+      const status = await api.editStatus();
+      const pending = status.files.filter((f) => f.state === "unstaged" || f.state === "staged");
+      for (const f of pending) {
+        if (f.kind === "workflow" && f.id) {
+          if (f.change === "D") putDraftDeletion(cur, f.id);
+          else putDraftWorkflow(cur, await api.getWorkflow(f.id, "edit"));
+        } else if (f.change !== "D") {
+          // 워크플로우 외 일반 파일(domains.json 등)은 원문 그대로 보관
+          const { content } = await api.editReadFile(f.path);
+          if (content != null) putDraftFile(cur, f.path, content);
+        }
+      }
+      await api.editDiscardAll();
+      if (pending.length)
+        setNotice(
+          `'${cur}'의 커밋 전 수정 ${pending.length}건을 이 브라우저에 보관했습니다. ` +
+            `해당 브랜치로 다시 들어가면 이어서 수정할 수 있습니다.`,
+        );
+    }
+
+    async function restoreDrafts(target: string) {
+      const d = loadDrafts(target);
+      if (!d || draftCount(d) === 0) return;
+      for (const wf of Object.values(d.workflows)) await api.saveWorkflow(wf);
+      for (const id of d.deleted) await api.deleteWorkflow(id).catch(() => {});
+      for (const [path, content] of Object.entries(d.files)) await api.editWriteFile(path, content);
+      // 복원해도 worktree가 그대로면(이미 커밋된 내용) 드래프트는 소진된 것 — 비운다
+      const after = await api.editState();
+      if (!after.dirty) {
+        clearDrafts(target);
+        return;
+      }
+      setNotice(`이 브라우저에 보관된 수정 ${draftCount(d)}건을 복원했습니다.`);
+    }
+
+    async function reconcile() {
+      reconciling.current = true;
+      try {
+        if (st!.current_branch !== want) {
+          if (st!.dirty) await snapshotAndReset(st!.current_branch);
+          await api.editCheckout(want);
+          if (want !== st!.base_branch) await restoreDrafts(want);
+        } else if (want !== st!.base_branch && !st!.dirty) {
+          // 브랜치는 맞지만 worktree가 깨끗한 경우(다른 세션이 초기화) — 드래프트 복원
+          await restoreDrafts(want);
+        } else {
+          return; // 일치 — 할 일 없음
+        }
+      } catch (e) {
+        setError((e as Error).message);
+      } finally {
+        reconciling.current = false;
+      }
+      bump();
+    }
+
+    const clean = st.current_branch === want && (want === st.base_branch || st.dirty || draftCount(loadDrafts(want)) === 0);
+    if (!clean) void reconcile();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [st, urlBranch]);
+
   const isFeature = !!st && st.current_branch !== st.base_branch && st.current_branch !== st.prod_branch;
-  const canEdit = isFeature && !!st && !st.in_merge;
+  const branchMatched = !!st && st.current_branch === (urlBranch ?? st.base_branch);
+  const canEdit = isFeature && branchMatched && !!st && !st.in_merge;
+
   const statusById = useMemo(() => {
     const map = new Map<string, EditFileEntry>();
     for (const f of files) if (f.kind === "workflow" && f.id) map.set(f.id, f);
     return map;
   }, [files]);
 
-  // 작업(도메인/업무)별 변경 여부 — 사이드바 배지
-  const changedTasks = useMemo(() => {
+  // 업무(도메인/업무)별 집계 상태 — 사이드바 업무 배지 (가장 앞선 상태 + 건수)
+  const taskStates = useMemo(() => {
+    const map = new Map<string, { state: FileState; count: number }>();
+    for (const f of files) {
+      if (f.kind !== "workflow" || !f.domain || !f.task) continue;
+      const key = `${f.domain.normalize("NFC")}/${f.task.normalize("NFC")}`;
+      const cur = map.get(key);
+      if (!cur) map.set(key, { state: f.state, count: 1 });
+      else {
+        cur.count += 1;
+        if (STATE_PRIORITY.indexOf(f.state) < STATE_PRIORITY.indexOf(cur.state)) cur.state = f.state;
+      }
+    }
+    return map;
+  }, [files]);
+
+  // 도메인별 변경 여부 — 사이드바 도메인(상위 메뉴)의 노란 점
+  const changedDomains = useMemo(() => {
     const set = new Set<string>();
     for (const f of files)
-      if (f.kind === "workflow" && f.domain && f.task)
-        set.add(`${f.domain.normalize("NFC")}/${f.task.normalize("NFC")}`);
+      if (f.kind === "workflow" && f.domain) set.add(f.domain.normalize("NFC"));
     return set;
   }, [files]);
 
@@ -103,7 +208,7 @@ export function EditPage({ page, go }: { page: EditorPage; go: (path: string) =>
   if (page.kind === "merge") {
     return (
       <div className="edit-shell">
-        <EditBar st={st} files={files} go={go} onAction={run} page={page} />
+        <EditBar st={st} files={files} go={go} onAction={run} page={page} urlBranch={urlBranch} />
         {error ? <div className="error-banner">{error}</div> : null}
         <MergeView
           onDone={() => {
@@ -120,7 +225,7 @@ export function EditPage({ page, go }: { page: EditorPage; go: (path: string) =>
     if (st && !canEdit) {
       return (
         <div className="edit-shell">
-          <EditBar st={st} files={files} go={go} onAction={run} page={page} />
+          <EditBar st={st} files={files} go={go} onAction={run} page={page} urlBranch={urlBranch} />
           <div className="detail-empty">
             <p className="muted">
               워크플로우 등록/수정은 수정 모드(feature 브랜치)에서만 할 수 있습니다. 상단에서
@@ -132,18 +237,21 @@ export function EditPage({ page, go }: { page: EditorPage; go: (path: string) =>
     }
     return (
       <div className="edit-shell">
-        <EditBar st={st} files={files} go={go} onAction={run} page={page} />
+        <EditBar st={st} files={files} go={go} onAction={run} page={page} urlBranch={urlBranch} />
         {error ? <div className="error-banner">{error}</div> : null}
         <WorkflowEditor
           mode={page.kind}
           id={page.kind === "edit" ? page.id : undefined}
           initialDomain={page.kind === "new" ? page.domain : undefined}
           initialTask={page.kind === "new" ? page.task : undefined}
+          onSavedWorkflow={(wf) => {
+            if (urlBranch) putDraftWorkflow(urlBranch, wf);
+          }}
           onSaved={(i) => {
             bump();
-            go(`/editor/run/${i}`);
+            go(`${bp}/run/${i}`);
           }}
-          onCancel={() => go("/editor")}
+          onCancel={() => go(bp)}
         />
       </div>
     );
@@ -151,7 +259,7 @@ export function EditPage({ page, go }: { page: EditorPage; go: (path: string) =>
 
   return (
     <div className="edit-shell">
-      <EditBar st={st} files={files} go={go} onAction={run} page={page} />
+      <EditBar st={st} files={files} go={go} onAction={run} page={page} urlBranch={urlBranch} />
       {error ? <div className="error-banner">{error}</div> : null}
       {notice ? <div className="notice-banner">{notice}</div> : null}
       <WorkflowLayout
@@ -160,16 +268,27 @@ export function EditPage({ page, go }: { page: EditorPage; go: (path: string) =>
         refreshKey={`${refresh}:${st?.current_branch ?? ""}`}
         activeId={page.kind === "run" ? page.id : undefined}
         activeTask={page.kind === "task" ? { domain: page.domain, task: page.task } : undefined}
-        onOpenTask={(d, t) => go(editTaskPath(d, t))}
+        onOpenTask={(d, t) => go(`${bp}/t/${encodeURIComponent(d)}/${encodeURIComponent(t)}`)}
         action={
           canEdit ? (
-            <button className="primary small" onClick={() => go(editNewPath())}>
+            <button className="primary small" onClick={() => go(`${bp}/new`)}>
               + 새로
             </button>
           ) : undefined
         }
-        taskBadge={(domain, task) =>
-          changedTasks.has(`${domain}/${task}`) ? <span className="task-dot-changed" title="변경 있음" /> : null
+        taskBadge={(domain, task) => {
+          const ts = taskStates.get(`${domain}/${task}`);
+          if (!ts) return null;
+          const meta = FILE_STATE_META[ts.state];
+          return (
+            <span className={`state-badge sm ${meta.cls}`}>
+              {meta.label}
+              {ts.count > 1 ? ` ${ts.count}` : ""}
+            </span>
+          );
+        }}
+        domainBadge={(domain) =>
+          changedDomains.has(domain) ? <span className="domain-dot-changed" title="하위 변경 있음" /> : null
         }
       >
         {page.kind === "task" ? (
@@ -179,10 +298,13 @@ export function EditPage({ page, go }: { page: EditorPage; go: (path: string) =>
             canEdit={canEdit}
             statusById={statusById}
             refreshKey={`${refresh}:${st?.current_branch ?? ""}`}
-            onRun={(i) => go(`/editor/run/${i}`)}
-            onEdit={(i) => go(`/editor/edit/${i}`)}
-            onNew={() => go(editNewPath(page.domain, page.task))}
-            onDeleted={bump}
+            onRun={(i) => go(`${bp}/run/${i}`)}
+            onEdit={(i) => go(`${bp}/edit/${i}`)}
+            onNew={() => go(`${bp}/new/${encodeURIComponent(page.domain)}/${encodeURIComponent(page.task)}`)}
+            onDeleted={(w) => {
+              if (urlBranch) putDraftDeletion(urlBranch, w.id);
+              bump();
+            }}
           />
         ) : page.kind === "run" ? (
           <EditRunDetail
@@ -190,12 +312,19 @@ export function EditPage({ page, go }: { page: EditorPage; go: (path: string) =>
             canEdit={canEdit}
             statusById={statusById}
             refreshKey={`${refresh}:${st?.current_branch ?? ""}`}
-            onEdit={(i) => go(`/editor/edit/${i}`)}
-            onBack={(d, t) => go(editTaskPath(d, t))}
+            onEdit={(i) => go(`${bp}/edit/${i}`)}
+            onBack={(d, t) => go(`${bp}/t/${encodeURIComponent(d)}/${encodeURIComponent(t)}`)}
             onOpenExecution={(i) => go(`/executions/${i}`)}
           />
         ) : (
-          <EditHome st={st} files={files} isFeature={isFeature} onAction={run} refreshKey={refresh} />
+          <EditHome
+            st={st}
+            files={files}
+            isFeature={isFeature}
+            onAction={run}
+            refreshKey={refresh}
+            urlBranch={urlBranch}
+          />
         )}
       </WorkflowLayout>
     </div>
@@ -211,12 +340,14 @@ function EditBar({
   go,
   onAction,
   page,
+  urlBranch,
 }: {
   st: EditState | null;
   files: EditFileEntry[];
   go: (path: string) => void;
   onAction: (op: () => Promise<unknown>, done?: string) => Promise<void>;
   page: EditorPage;
+  urlBranch: string | null;
 }) {
   const [newBranch, setNewBranch] = useState("");
   const [commitOpen, setCommitOpen] = useState(false);
@@ -239,8 +370,14 @@ function EditBar({
   };
 
   const doMerge = wrap(async () => {
+    const branch = st.current_branch;
     const r = await api.editMerge();
-    if (r.status === "conflict") go("/editor/merge");
+    if (r.status === "conflict") {
+      go("/editor/merge");
+    } else {
+      clearDrafts(branch); // 머지 완료 — 이 브랜치 드래프트 폐기
+      go("/editor");
+    }
   });
 
   return (
@@ -251,13 +388,13 @@ function EditBar({
           {isFeature ? " (수정 모드)" : " (읽기 전용)"}
         </span>
         <select
-          value={st.current_branch}
+          value={urlBranch ?? st.base_branch}
           disabled={busy || st.in_merge}
           onChange={(e) => {
             const v = e.target.value;
-            if (v !== st.current_branch) void onAction(() => api.editCheckout(v));
+            go(v === st.base_branch ? "/editor" : branchPath(v));
           }}
-          title="브랜치 전환"
+          title="브랜치 전환 (URL에 반영)"
         >
           <option value={st.base_branch}>{st.base_branch}</option>
           {st.feature_branches.map((b) => (
@@ -265,8 +402,8 @@ function EditBar({
               {b}
             </option>
           ))}
-          {isFeature && !st.feature_branches.includes(st.current_branch) ? (
-            <option value={st.current_branch}>{st.current_branch}</option>
+          {urlBranch && !st.feature_branches.includes(urlBranch) && urlBranch !== st.base_branch ? (
+            <option value={urlBranch}>{urlBranch}</option>
           ) : null}
         </select>
 
@@ -281,9 +418,10 @@ function EditBar({
               className="primary small"
               disabled={busy || !newBranch.trim()}
               onClick={wrap(async () => {
-                await api.editCreateBranch(newBranch.trim());
+                const r = await api.editCreateBranch(newBranch.trim());
                 setNewBranch("");
-              }, "수정 모드로 진입했습니다 (feature 브랜치 생성)")}
+                go(branchPath(r.branch)); // 수정 모드 진입 — 브랜치를 URL에 반영
+              })}
             >
               수정 모드 시작
             </button>
@@ -319,6 +457,7 @@ function EditBar({
                   disabled={busy || !commitMsg.trim()}
                   onClick={wrap(async () => {
                     await api.editCommit(commitMsg.trim(), true);
+                    clearDrafts(st.current_branch); // 커밋됨 — 드래프트는 역할 종료
                     setCommitMsg("");
                     setCommitOpen(false);
                   }, "커밋했습니다")}
@@ -358,7 +497,7 @@ function EditBar({
 }
 
 // ---------------------------------------------------------------------------
-// 홈: 변경 파일 패널 + 운영(master) 미반영 목록
+// 홈: 변경 파일 패널 + 운영(master) 미반영 목록 + 운영 반영
 // ---------------------------------------------------------------------------
 function EditHome({
   st,
@@ -366,15 +505,18 @@ function EditHome({
   isFeature,
   onAction,
   refreshKey,
+  urlBranch,
 }: {
   st: EditState | null;
   files: EditFileEntry[];
   isFeature: boolean;
   onAction: (op: () => Promise<unknown>, done?: string) => Promise<void>;
   refreshKey: unknown;
+  urlBranch: string | null;
 }) {
   const [pending, setPending] = useState<PendingEntry[] | null>(null);
   const [pendingErr, setPendingErr] = useState<string | null>(null);
+  const [releasing, setReleasing] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -425,8 +567,10 @@ function EditHome({
                         <button
                           className="link danger"
                           onClick={() => {
-                            if (confirm(`'${f.name ?? f.path}' 변경을 되돌릴까요? 임시 저장이 사라집니다.`))
+                            if (confirm(`'${f.name ?? f.path}' 변경을 되돌릴까요? 임시 저장이 사라집니다.`)) {
+                              if (urlBranch && f.kind === "workflow" && f.id) removeDraft(urlBranch, f.id);
                               void onAction(() => api.editDiscard([f.path]));
+                            }
                           }}
                         >
                           되돌리기
@@ -455,9 +599,27 @@ function EditHome({
       )}
 
       <div className="panel">
-        <h3>
-          운영 미반영 <span className="hint">({st?.prod_branch ?? "master"} 대비 {st?.base_branch ?? "develop"}의 변경)</span>
-        </h3>
+        <div className="panel-head">
+          <h3>
+            운영 미반영 <span className="hint">({st?.prod_branch ?? "master"} 대비 {st?.base_branch ?? "develop"}의 변경)</span>
+          </h3>
+          {pending && pending.length > 0 && !isFeature && !st?.in_merge ? (
+            <button
+              className="primary small"
+              disabled={releasing}
+              onClick={() => {
+                if (!confirm(`${st?.base_branch}의 변경 ${pending.length}건을 운영(${st?.prod_branch})에 반영할까요?`))
+                  return;
+                setReleasing(true);
+                void onAction(() => api.editRelease(), "운영에 반영했습니다 (master 병합 + push)").finally(() =>
+                  setReleasing(false),
+                );
+              }}
+            >
+              {releasing ? "반영 중…" : `운영 반영 (${st?.base_branch} → ${st?.prod_branch})`}
+            </button>
+          ) : null}
+        </div>
         {pendingErr ? <div className="error-banner">{pendingErr}</div> : null}
         {!pending ? (
           <p className="muted">불러오는 중…</p>
@@ -485,9 +647,6 @@ function EditHome({
             ))}
           </div>
         )}
-        <p className="muted small-text">
-          운영 반영은 {st?.base_branch} → {st?.prod_branch} 병합(배포 절차)으로 진행합니다.
-        </p>
       </div>
     </section>
   );
@@ -515,7 +674,7 @@ function EditTaskDetail({
   onRun: (id: string) => void;
   onEdit: (id: string) => void;
   onNew: () => void;
-  onDeleted: () => void;
+  onDeleted: (w: WorkflowSummary) => void;
 }) {
   const [rows, setRows] = useState<WorkflowSummary[] | null>(null);
   const [colors, setColors] = useState<Record<string, string>>({});
@@ -597,7 +756,7 @@ function EditTaskDetail({
                         if (confirm(`'${w.name}' 워크플로우를 삭제할까요? (커밋 전까지는 되돌릴 수 있습니다)`))
                           api
                             .deleteWorkflow(w.id)
-                            .then(onDeleted)
+                            .then(() => onDeleted(w))
                             .catch((e) => setError((e as Error).message));
                       }}
                     >

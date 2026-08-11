@@ -175,6 +175,19 @@ export const api = {
       body: JSON.stringify({ paths }),
     }),
 
+  // 커밋 전 변경 전체 초기화 (드래프트 스냅샷 후 develop 복귀용)
+  editDiscardAll: () => req<{ status: string }>("/api/edit/discard-all", { method: "POST" }),
+
+  // 편집 worktree 일반 파일 읽기/쓰기 — 워크플로우 외 파일(domains.json 등) 드래프트용
+  editReadFile: (path: string) =>
+    req<{ path: string; content: string | null }>(`/api/edit/file?path=${encodeURIComponent(path)}`),
+
+  editWriteFile: (path: string, content: string) =>
+    req<{ status: string }>("/api/edit/file", {
+      method: "POST",
+      body: JSON.stringify({ path, content }),
+    }),
+
   editCommit: (message: string, stageAll = true) =>
     req<{ commit: string }>("/api/edit/commit", {
       method: "POST",
@@ -203,6 +216,12 @@ export const api = {
 
   editPending: () =>
     req<{ prod_branch: string; base_branch: string; files: PendingEntry[] }>("/api/edit/pending"),
+
+  // develop → master(운영) 병합 + push
+  editRelease: () =>
+    req<{ status: string; commit: string; pushed: boolean }>("/api/edit/release", {
+      method: "POST",
+    }),
 
   listExecutions: () =>
     req<{ executions: ExecutionSummary[] }>("/api/executions").then((r) => r.executions),

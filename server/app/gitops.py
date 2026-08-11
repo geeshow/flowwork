@@ -267,6 +267,38 @@ def discard(paths: list[str]) -> None:
             p.unlink()
 
 
+def _safe_edit_path(path: str) -> Path:
+    target = (EDIT_DATA_DIR / path).resolve()
+    if not target.is_relative_to(EDIT_DATA_DIR.resolve()) or ".git" in Path(path).parts:
+        raise GitError(f"허용되지 않는 경로입니다: {path!r}")
+    return target
+
+
+def read_file(path: str) -> str | None:
+    """편집 worktree의 파일 내용 (드래프트 스냅샷용)."""
+    target = _safe_edit_path(path)
+    return target.read_text(encoding="utf-8") if target.is_file() else None
+
+
+def write_file(path: str, content: str) -> None:
+    """편집 worktree에 파일 쓰기 (드래프트 복원용 — 워크플로우 외 일반 파일 포함)."""
+    target = _safe_edit_path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content, encoding="utf-8")
+
+
+def discard_all() -> None:
+    """커밋 전 변경 전체 초기화 — index/worktree 리셋 + 미추적 파일 제거.
+
+    편집 메뉴 재진입 시 develop으로 되돌리기 전에 호출된다
+    (프론트가 변경 내용을 localStorage 드래프트로 스냅샷한 뒤).
+    """
+    if in_merge():
+        raise GitError("머지 진행 중에는 초기화할 수 없습니다. 머지를 완료/중단하세요.")
+    _git("reset", "--hard", "HEAD")
+    _git("clean", "-fd")
+
+
 def commit(message: str, stage_all: bool = False) -> str:
     if current_branch() == EDIT_BASE_BRANCH and not in_merge():
         raise GitError(f"{EDIT_BASE_BRANCH} 브랜치에는 직접 커밋할 수 없습니다. feature 브랜치를 만드세요.")
@@ -370,6 +402,34 @@ def merge_abort() -> None:
     if not in_merge():
         raise GitError("진행 중인 머지가 없습니다.")
     _git("merge", "--abort")
+
+
+# ---------------------------------------------------------------------------
+# 운영 반영 — develop을 master(운영 트리)에 머지 + push
+# ---------------------------------------------------------------------------
+def release_to_prod() -> dict[str, Any]:
+    """develop → master 병합(운영 반영). 운영 트리(DATA_DIR, master 체크아웃)에서 수행한다.
+
+    master는 이 경로로만 전진하는 것을 전제로 한다. 충돌이 나면(예: master에
+    수동 수정이 끼어든 경우) 병합을 되돌리고 오류를 반환한다 — 수동 해결 대상.
+    """
+    if _git("status", "--porcelain", cwd=DATA_DIR).strip():
+        raise GitError("운영 트리에 커밋되지 않은 변경이 있습니다. 운영 트리는 직접 수정하지 마세요.")
+    if not _git("rev-list", "-1", f"{PROD_BRANCH}..{EDIT_BASE_BRANCH}", cwd=DATA_DIR).strip():
+        raise GitError(f"운영에 반영할 {EDIT_BASE_BRANCH} 변경이 없습니다.")
+    proc = _run(
+        "merge", "--no-ff", EDIT_BASE_BRANCH,
+        "-m", f"release: {EDIT_BASE_BRANCH} → {PROD_BRANCH}",
+        cwd=DATA_DIR,
+    )
+    if proc.returncode != 0:
+        _run("merge", "--abort", cwd=DATA_DIR)
+        raise GitError(
+            "운영 병합에 충돌이 발생했습니다. develop을 master와 동기화한 뒤 다시 시도하세요: "
+            + (proc.stderr or proc.stdout).strip()
+        )
+    pushed = _run("push", "origin", PROD_BRANCH, cwd=DATA_DIR).returncode == 0
+    return {"status": "released", "commit": _git("rev-parse", "--short", PROD_BRANCH, cwd=DATA_DIR).strip(), "pushed": pushed}
 
 
 # ---------------------------------------------------------------------------
