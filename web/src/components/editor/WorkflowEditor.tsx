@@ -12,8 +12,6 @@ interface Props {
   initialDomain?: string; // 새 워크플로우 시 기본 도메인 (현재 보던 도메인 탭)
   initialTask?: string; // 새 워크플로우 시 기본 업무
   onSaved: (id: string) => void;
-  // 저장 성공 시 저장된 본문 전달 — 편집 메뉴가 localStorage 드래프트로 미러링
-  onSavedWorkflow?: (wf: Workflow) => void;
   onCancel: () => void;
 }
 
@@ -44,7 +42,7 @@ function newStep(): WorkflowStep {
   };
 }
 
-export function WorkflowEditor({ mode, id, initialDomain, initialTask, onSaved, onSavedWorkflow, onCancel }: Props) {
+export function WorkflowEditor({ mode, id, initialDomain, initialTask, onSaved, onCancel }: Props) {
   const [wf, setWf] = useState<Workflow | null>(
     mode === "new" ? emptyWorkflow(initialDomain, initialTask) : null,
   );
@@ -166,7 +164,6 @@ export function WorkflowEditor({ mode, id, initialDomain, initialTask, onSaved, 
       const domain = normalized.domain.normalize("NFC");
       if (isValidHex(domainColor)) await api.setDomainColor(domain, domainColor);
       await api.saveWorkflow(normalized);
-      onSavedWorkflow?.(normalized);
       onSaved(normalized.id);
     } catch (e) {
       setError((e as Error).message);

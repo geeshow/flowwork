@@ -6,6 +6,7 @@ POC 스코프: 데이터 경로, SSRF 방지용 host allowlist, 프록시 타임
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -21,14 +22,30 @@ EXECUTIONS_DIR = DATA_DIR / "executions"
 COLLECTIONS_DIR = DATA_DIR / "api-collections"  # API 콜렉션 (workspace/collection)
 DOMAINS_FILE = DATA_DIR / "domains.json"  # 도메인 → 팔레트 색상 id 매핑
 
-# 편집용 git worktree — DATA_DIR(git 저장소, master=운영)의 develop/feature 브랜치를
-# 체크아웃해 두는 별도 작업 트리. 편집 메뉴의 저장은 여기에 쓰이고(=커밋 전 로컬
-# 임시 저장), 커밋/머지도 여기서 수행한다. 운영(master) 트리는 건드리지 않는다.
+# 편집용 git worktree 부모 디렉토리 — 브랜치마다 하위에 별도 worktree를 두어
+# 여러 브랜치를 동시에 편집할 수 있다: {EDIT_DATA_DIR}/{develop, feature__x, …}
+# 편집 메뉴의 저장은 해당 브랜치 worktree에 쓰이고(=커밋 전 로컬 임시 저장),
+# feature → develop 머지는 develop worktree에서 수행한다. 운영(master) 트리는 불변.
 EDIT_DATA_DIR = Path(os.environ.get("FLOWWORK_EDIT_DATA_DIR", f"{DATA_DIR}-edit"))
 
 # 편집 브랜치 체계
 PROD_BRANCH = os.environ.get("FLOWWORK_PROD_BRANCH", "master")
 EDIT_BASE_BRANCH = os.environ.get("FLOWWORK_EDIT_BASE_BRANCH", "develop")
+
+# 브랜치명: 영문/숫자/한글/-/_/./ 만 허용, '..'과 선행 '-' 금지 (git 옵션/경로 주입 방지)
+BRANCH_NAME_RE = re.compile(r"^[\w가-힣][\w가-힣./-]*$", re.UNICODE)
+
+
+def check_branch_name(name: str) -> str:
+    if not BRANCH_NAME_RE.match(name) or ".." in name:
+        raise ValueError(f"허용되지 않는 브랜치 이름입니다: {name!r}")
+    return name
+
+
+def edit_worktree_path(branch: str | None) -> Path:
+    """브랜치 → 편집 worktree 경로. 브랜치명 검증 포함 ('/'는 '__'로 치환)."""
+    b = check_branch_name(branch or EDIT_BASE_BRANCH)
+    return EDIT_DATA_DIR / b.replace("/", "__")
 
 PROXY_TIMEOUT_SECONDS = float(os.environ.get("FLOWWORK_PROXY_TIMEOUT", "15.0"))
 

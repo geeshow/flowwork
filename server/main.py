@@ -141,7 +141,8 @@ async def get_execution(execution_id: str) -> ExecutionDetail:
 
 # ---------------------------------------------------------------------------
 # 3. 워크플로우 CRUD
-#    source=prod(기본, 운영 master 트리) | edit(편집 worktree — develop/feature)
+#    source=prod(기본, 운영 master 트리) | edit(브랜치별 편집 worktree)
+#    edit 소스는 branch로 worktree를 고른다 (미지정 시 develop).
 #    등록/수정/삭제는 편집 worktree(source=edit)에서만 허용한다.
 # ---------------------------------------------------------------------------
 def _check_source(source: str) -> str:
@@ -158,14 +159,18 @@ def _check_editable(source: str) -> str:
 
 
 @app.get("/api/workflows")
-async def list_workflows(source: str = "prod") -> dict:
-    return {"workflows": [w.model_dump() for w in storage.list_workflows(_check_source(source))]}
+async def list_workflows(source: str = "prod", branch: str | None = None) -> dict:
+    try:
+        rows = storage.list_workflows(_check_source(source), branch)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    return {"workflows": [w.model_dump() for w in rows]}
 
 
 @app.get("/api/workflows/{workflow_id}", response_model=WorkflowFile)
-async def get_workflow(workflow_id: str, source: str = "prod") -> WorkflowFile:
+async def get_workflow(workflow_id: str, source: str = "prod", branch: str | None = None) -> WorkflowFile:
     try:
-        wf = await storage.load_workflow(workflow_id, _check_source(source))
+        wf = await storage.load_workflow(workflow_id, _check_source(source), branch)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     if wf is None:
@@ -174,11 +179,13 @@ async def get_workflow(workflow_id: str, source: str = "prod") -> WorkflowFile:
 
 
 @app.put("/api/workflows/{workflow_id}", response_model=SaveResult)
-async def save_workflow(workflow_id: str, wf: WorkflowFile, source: str = "edit") -> SaveResult:
+async def save_workflow(
+    workflow_id: str, wf: WorkflowFile, source: str = "edit", branch: str | None = None
+) -> SaveResult:
     if wf.id != workflow_id:
         raise HTTPException(400, "경로의 id와 본문의 id가 일치하지 않습니다")
     try:
-        await storage.save_workflow(wf, _check_editable(source))
+        await storage.save_workflow(wf, _check_editable(source), branch)
     except storage.DuplicateNameError as e:
         raise HTTPException(409, str(e)) from e
     except ValueError as e:
@@ -187,9 +194,9 @@ async def save_workflow(workflow_id: str, wf: WorkflowFile, source: str = "edit"
 
 
 @app.delete("/api/workflows/{workflow_id}", response_model=SaveResult)
-async def delete_workflow(workflow_id: str, source: str = "edit") -> SaveResult:
+async def delete_workflow(workflow_id: str, source: str = "edit", branch: str | None = None) -> SaveResult:
     try:
-        deleted = await storage.delete_workflow(workflow_id, _check_editable(source))
+        deleted = await storage.delete_workflow(workflow_id, _check_editable(source), branch)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     if not deleted:
@@ -201,14 +208,19 @@ async def delete_workflow(workflow_id: str, source: str = "edit") -> SaveResult:
 # 3-b. 도메인 색상 (팔레트 id 매핑)
 # ---------------------------------------------------------------------------
 @app.get("/api/domains")
-async def list_domain_colors(source: str = "prod") -> dict:
-    return {"colors": storage.load_domain_colors(_check_source(source))}
+async def list_domain_colors(source: str = "prod", branch: str | None = None) -> dict:
+    try:
+        return {"colors": storage.load_domain_colors(_check_source(source), branch)}
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
 
 
 @app.put("/api/domains/{domain}", response_model=SaveResult)
-async def set_domain_color(domain: str, body: DomainColor, source: str = "edit") -> SaveResult:
+async def set_domain_color(
+    domain: str, body: DomainColor, source: str = "edit", branch: str | None = None
+) -> SaveResult:
     try:
-        storage.set_domain_color(domain, body.color, _check_editable(source))
+        storage.set_domain_color(domain, body.color, _check_editable(source), branch)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     return SaveResult(status="saved")
@@ -367,7 +379,9 @@ async def apic_export_collection(workspace: str, collection_id: str, format: str
 
 
 # ---------------------------------------------------------------------------
-# 6. 편집(git) — 편집 worktree의 브랜치/상태/커밋/머지/충돌 해결
+# 6. 편집(git) — 브랜치별 worktree의 상태/커밋/머지/충돌 해결
+#    브랜치마다 전용 worktree를 두므로 여러 브랜치를 동시에 편집할 수 있다.
+#    branch 미지정은 develop worktree를 뜻한다.
 # ---------------------------------------------------------------------------
 class BranchBody(BaseModel):
     name: str
@@ -376,34 +390,40 @@ class BranchBody(BaseModel):
 class CommitBody(BaseModel):
     message: str
     stage_all: bool = True
+    branch: str | None = None
 
 
 class PathsBody(BaseModel):
     paths: list[str] | None = None
+    branch: str | None = None
+
+
+class MergeBody(BaseModel):
+    branch: str
 
 
 class ResolveBody(BaseModel):
     path: str
     content: str
+    branch: str | None = None
 
 
 def _edit_op(fn, *args, **kwargs):
-    """편집 git 연산 공통 래퍼: worktree 보장 + GitError → 409."""
+    """편집 git 연산 공통 래퍼: GitError → 409."""
     try:
-        gitops.ensure_ready()
         return fn(*args, **kwargs)
     except gitops.GitError as e:
         raise HTTPException(409, str(e)) from e
 
 
 @app.get("/api/edit/state")
-async def edit_state() -> dict:
-    return _edit_op(gitops.state)
+async def edit_state(branch: str | None = None) -> dict:
+    return _edit_op(gitops.state, branch)
 
 
 @app.get("/api/edit/status")
-async def edit_status() -> dict:
-    return _edit_op(gitops.file_states)
+async def edit_status(branch: str | None = None) -> dict:
+    return _edit_op(gitops.file_states, branch)
 
 
 @app.post("/api/edit/branches")
@@ -411,20 +431,15 @@ async def edit_create_branch(body: BranchBody) -> dict:
     return {"branch": _edit_op(gitops.create_branch, body.name)}
 
 
-@app.post("/api/edit/checkout")
-async def edit_checkout(body: BranchBody) -> dict:
-    return {"branch": _edit_op(gitops.switch_branch, body.name)}
-
-
 @app.post("/api/edit/stage")
 async def edit_stage(body: PathsBody) -> dict:
-    _edit_op(gitops.stage, body.paths)
+    _edit_op(gitops.stage, body.branch, body.paths)
     return {"status": "staged"}
 
 
 @app.post("/api/edit/unstage")
 async def edit_unstage(body: PathsBody) -> dict:
-    _edit_op(gitops.unstage, body.paths)
+    _edit_op(gitops.unstage, body.branch, body.paths)
     return {"status": "unstaged"}
 
 
@@ -432,43 +447,43 @@ async def edit_unstage(body: PathsBody) -> dict:
 async def edit_discard(body: PathsBody) -> dict:
     if not body.paths:
         raise HTTPException(400, "되돌릴 파일 경로가 필요합니다")
-    _edit_op(gitops.discard, body.paths)
+    _edit_op(gitops.discard, body.branch, body.paths)
     return {"status": "discarded"}
 
 
 @app.post("/api/edit/discard-all")
-async def edit_discard_all() -> dict:
-    """커밋 전 변경 전체 초기화 (프론트가 드래프트 스냅샷 후 호출)."""
-    _edit_op(gitops.discard_all)
+async def edit_discard_all(body: PathsBody) -> dict:
+    """해당 브랜치 worktree의 커밋 전 변경 전체 초기화."""
+    _edit_op(gitops.discard_all, body.branch)
     return {"status": "discarded"}
 
 
 @app.get("/api/edit/file")
-async def edit_read_file(path: str) -> dict:
-    """편집 worktree 파일 내용 — 워크플로우 외 일반 파일(domains.json 등) 드래프트 스냅샷용."""
-    return {"path": path, "content": _edit_op(gitops.read_file, path)}
+async def edit_read_file(path: str, branch: str | None = None) -> dict:
+    """편집 worktree 파일 내용 (워크플로우 외 일반 파일 포함)."""
+    return {"path": path, "content": _edit_op(gitops.read_file, branch, path)}
 
 
 @app.post("/api/edit/file")
 async def edit_write_file(body: ResolveBody) -> dict:
-    """편집 worktree 파일 쓰기 — 드래프트 복원용."""
-    _edit_op(gitops.write_file, body.path, body.content)
+    """편집 worktree 파일 쓰기."""
+    _edit_op(gitops.write_file, body.branch, body.path, body.content)
     return {"status": "saved"}
 
 
 @app.post("/api/edit/commit")
 async def edit_commit(body: CommitBody) -> dict:
-    return {"commit": _edit_op(gitops.commit, body.message, body.stage_all)}
+    return {"commit": _edit_op(gitops.commit, body.branch, body.message, body.stage_all)}
 
 
 @app.post("/api/edit/push")
-async def edit_push() -> dict:
-    return _edit_op(gitops.push)
+async def edit_push(body: PathsBody) -> dict:
+    return _edit_op(gitops.push, body.branch)
 
 
 @app.post("/api/edit/merge")
-async def edit_merge() -> dict:
-    return _edit_op(gitops.merge_to_base)
+async def edit_merge(body: MergeBody) -> dict:
+    return _edit_op(gitops.merge_to_base, body.branch)
 
 
 @app.get("/api/edit/conflicts")

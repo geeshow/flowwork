@@ -1,120 +1,148 @@
-"""편집 worktree의 git 연산 — 브랜치/상태/커밋/머지/충돌 해결.
+"""편집 git 연산 — 브랜치별 worktree로 여러 브랜치를 동시에 편집한다.
 
 데이터 저장소(DATA_DIR = master 체크아웃, 운영)와 별도로, 같은 저장소의
-develop/feature 브랜치를 체크아웃한 편집 worktree(EDIT_DATA_DIR)를 다룬다.
+브랜치마다 EDIT_DATA_DIR 하위에 전용 worktree를 둔다:
+
+    {EDIT_DATA_DIR}/develop        ← develop worktree (편집 기본 뷰, 머지 수행)
+    {EDIT_DATA_DIR}/feature__x     ← feature/x worktree (수정 모드)
 
 편집 흐름:
-  1. develop 뷰(읽기 전용) → feature 브랜치 생성/선택으로 수정 모드 진입
-  2. 저장 = worktree 파일 쓰기 (커밋 전 로컬 임시 저장, 서버 재시작에도 유지)
-  3. stage → commit → push → develop 머지 (충돌 시 파일별 ours/theirs 제공)
-  4. master vs develop 비교로 운영 미반영 목록 제공
+  1. develop 뷰(읽기 전용) → feature 브랜치 생성 시 전용 worktree가 만들어진다
+  2. 저장 = 그 브랜치 worktree 파일 쓰기 (커밋 전 임시 저장 — 브랜치별로 독립 보존)
+  3. stage → commit → push → develop 머지 (develop worktree에서 수행,
+     충돌 시 파일별 ours/theirs 제공, 머지 완료 시 feature worktree/브랜치 정리)
+  4. develop → master 운영 반영, master vs develop 미반영 목록
 
 원격(push/pull)은 오프라인에서도 동작하도록 best-effort로 처리한다.
 """
 from __future__ import annotations
 
 import json
-import re
 import subprocess
 from pathlib import Path
 from typing import Any
 
-from .config import DATA_DIR, EDIT_BASE_BRANCH, EDIT_DATA_DIR, PROD_BRANCH
-
-# 브랜치명: 영문/숫자/한글/-/_/./ 만 허용, '..'과 선행 '-' 금지 (git 옵션 주입 방지)
-_BRANCH_RE = re.compile(r"^[\w가-힣][\w가-힣./-]*$", re.UNICODE)
+from .config import (
+    DATA_DIR,
+    EDIT_BASE_BRANCH,
+    EDIT_DATA_DIR,
+    PROD_BRANCH,
+    check_branch_name,
+    edit_worktree_path,
+)
 
 
 class GitError(Exception):
     """git 명령 실패 (메시지는 사용자에게 그대로 노출 가능한 수준으로)."""
 
 
-def _run(*args: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["git", *args],
-        cwd=str(cwd or EDIT_DATA_DIR),
-        capture_output=True,
-        text=True,
-    )
+def _run(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["git", *args], cwd=str(cwd), capture_output=True, text=True)
 
 
-def _git(*args: str, cwd: Path | None = None) -> str:
+def _git(*args: str, cwd: Path) -> str:
     proc = _run(*args, cwd=cwd)
     if proc.returncode != 0:
         raise GitError((proc.stderr or proc.stdout).strip() or f"git {' '.join(args)} 실패")
     return proc.stdout
 
 
-def _check_branch_name(name: str) -> str:
-    if not _BRANCH_RE.match(name) or ".." in name:
-        raise GitError(f"허용되지 않는 브랜치 이름입니다: {name!r}")
-    return name
+def _check_branch(name: str) -> str:
+    try:
+        return check_branch_name(name)
+    except ValueError as e:
+        raise GitError(str(e)) from e
 
 
-def ensure_ready() -> None:
-    """편집 worktree가 없으면 develop 브랜치와 함께 만든다."""
+def branch_exists(branch: str) -> bool:
+    return _run("rev-parse", "-q", "--verify", f"refs/heads/{branch}", cwd=DATA_DIR).returncode == 0
+
+
+def _migrate_legacy_worktree() -> None:
+    """구버전 레이아웃(EDIT_DATA_DIR 자체가 단일 worktree)을 브랜치별 하위 폴더로 이동."""
+    if not (EDIT_DATA_DIR / ".git").is_file():
+        return
+    branch = _git("rev-parse", "--abbrev-ref", "HEAD", cwd=EDIT_DATA_DIR).strip()
+    tmp = EDIT_DATA_DIR.parent / (EDIT_DATA_DIR.name + ".migrating")
+    _git("worktree", "move", str(EDIT_DATA_DIR), str(tmp), cwd=DATA_DIR)
+    EDIT_DATA_DIR.mkdir(parents=True)
+    _git("worktree", "move", str(tmp), str(edit_worktree_path(branch)), cwd=DATA_DIR)
+
+
+def ensure_base() -> None:
+    """저장소/브랜치/develop worktree 기본 구성을 보장한다."""
     if not (DATA_DIR / ".git").exists():
         raise GitError(f"데이터 디렉토리가 git 저장소가 아닙니다: {DATA_DIR}")
-    if (EDIT_DATA_DIR / ".git").exists():
-        return
-    if not _git("branch", "--list", EDIT_BASE_BRANCH, cwd=DATA_DIR).strip():
+    _migrate_legacy_worktree()
+    if not branch_exists(EDIT_BASE_BRANCH):
         _git("branch", EDIT_BASE_BRANCH, PROD_BRANCH, cwd=DATA_DIR)
-    _git("worktree", "add", str(EDIT_DATA_DIR), EDIT_BASE_BRANCH, cwd=DATA_DIR)
+    ensure_worktree(EDIT_BASE_BRANCH)
 
 
-# ---------------------------------------------------------------------------
-# 브랜치
-# ---------------------------------------------------------------------------
-def current_branch() -> str:
-    return _git("rev-parse", "--abbrev-ref", "HEAD").strip()
+def ensure_worktree(branch: str | None = None) -> Path:
+    """브랜치 전용 worktree 경로 (없으면 생성). 브랜치가 없으면 오류."""
+    b = _check_branch(branch or EDIT_BASE_BRANCH)
+    path = edit_worktree_path(b)
+    if (path / ".git").is_file():
+        return path
+    if not (DATA_DIR / ".git").exists():
+        raise GitError(f"데이터 디렉토리가 git 저장소가 아닙니다: {DATA_DIR}")
+    _migrate_legacy_worktree()
+    if (path / ".git").is_file():
+        return path
+    if b == EDIT_BASE_BRANCH and not branch_exists(b):
+        _git("branch", EDIT_BASE_BRANCH, PROD_BRANCH, cwd=DATA_DIR)
+    if not branch_exists(b):
+        raise GitError(f"브랜치가 없습니다: {b}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _run("worktree", "prune", cwd=DATA_DIR)  # 지워진 worktree 등록 정리
+    _git("worktree", "add", str(path), b, cwd=DATA_DIR)
+    return path
+
+
+def _wt(branch: str | None) -> Path:
+    return ensure_worktree(branch)
+
+
+def is_dirty(branch: str | None = None) -> bool:
+    return bool(_git("status", "--porcelain", cwd=_wt(branch)).strip())
 
 
 def in_merge() -> bool:
-    return _run("rev-parse", "-q", "--verify", "MERGE_HEAD").returncode == 0
-
-
-def is_dirty() -> bool:
-    return bool(_git("status", "--porcelain").strip())
+    """develop worktree의 머지 진행 여부 (feature 머지는 develop worktree에서 수행)."""
+    return _run("rev-parse", "-q", "--verify", "MERGE_HEAD", cwd=_wt(None)).returncode == 0
 
 
 def list_feature_branches() -> list[str]:
-    out = _git("for-each-ref", "--format=%(refname:short)", "refs/heads/")
+    out = _git("for-each-ref", "--format=%(refname:short)", "refs/heads/", cwd=DATA_DIR)
     skip = {PROD_BRANCH, EDIT_BASE_BRANCH}
     return [b for b in out.splitlines() if b and b not in skip]
 
 
-def state() -> dict[str, Any]:
+def state(branch: str | None = None) -> dict[str, Any]:
+    ensure_base()
+    b = _check_branch(branch or EDIT_BASE_BRANCH)
     return {
-        "current_branch": current_branch(),
+        "branch": b,
         "base_branch": EDIT_BASE_BRANCH,
         "prod_branch": PROD_BRANCH,
         "feature_branches": list_feature_branches(),
-        "dirty": is_dirty(),
+        "dirty": is_dirty(b),
         "in_merge": in_merge(),
     }
 
 
 def create_branch(name: str) -> str:
-    """develop에서 feature 브랜치를 만들고 전환한다."""
-    if in_merge():
-        raise GitError("머지 진행 중에는 브랜치를 만들 수 없습니다. 머지를 완료/중단하세요.")
-    name = _check_branch_name(name)
+    """develop에서 feature 브랜치를 만들고 전용 worktree를 준비한다."""
+    ensure_base()
+    name = _check_branch(name)
     if not name.startswith("feature/"):
         name = f"feature/{name}"
-    if is_dirty() and current_branch() != EDIT_BASE_BRANCH:
-        raise GitError("커밋되지 않은 변경이 있습니다. 먼저 커밋하거나 되돌리세요.")
-    _git("switch", "-c", name, EDIT_BASE_BRANCH)
+    if branch_exists(name):
+        raise GitError(f"이미 있는 브랜치입니다: {name}")
+    _git("branch", name, EDIT_BASE_BRANCH, cwd=DATA_DIR)
+    ensure_worktree(name)
     return name
-
-
-def switch_branch(branch: str) -> str:
-    if in_merge():
-        raise GitError("머지 진행 중에는 브랜치를 바꿀 수 없습니다. 머지를 완료/중단하세요.")
-    branch = _check_branch_name(branch)
-    if branch != current_branch() and is_dirty():
-        raise GitError("커밋되지 않은 변경이 있습니다. 먼저 커밋하거나 되돌리세요.")
-    _git("switch", branch)
-    return branch
 
 
 # ---------------------------------------------------------------------------
@@ -138,10 +166,10 @@ def _parse_porcelain_z(raw: str) -> list[tuple[str, str, str]]:
     return out
 
 
-def _diff_names(*args: str) -> dict[str, str]:
+def _diff_names(*args: str, cwd: Path) -> dict[str, str]:
     """`diff --name-status -z <args>` → {path: A|M|D}."""
-    raw = _git("diff", "--name-status", "-z", *args)
-    fields = [f for f in raw.split("\0")]
+    raw = _git("diff", "--name-status", "-z", *args, cwd=cwd)
+    fields = raw.split("\0")
     out: dict[str, str] = {}
     i = 0
     while i + 1 < len(fields):
@@ -159,11 +187,11 @@ def _diff_names(*args: str) -> dict[str, str]:
 
 
 def _remote_exists(branch: str) -> bool:
-    return _run("rev-parse", "-q", "--verify", f"refs/remotes/origin/{branch}").returncode == 0
+    return _run("rev-parse", "-q", "--verify", f"refs/remotes/origin/{branch}", cwd=DATA_DIR).returncode == 0
 
 
-def _read_blob(ref: str, path: str) -> str | None:
-    proc = _run("show", f"{ref}:{path}")
+def _read_blob(ref: str, path: str, cwd: Path) -> str | None:
+    proc = _run("show", f"{ref}:{path}", cwd=cwd)
     return proc.stdout if proc.returncode == 0 else None
 
 
@@ -189,37 +217,38 @@ def _summarize(path: str, content: str | None) -> dict[str, Any]:
     return entry
 
 
-def _content_for(path: str) -> str | None:
-    p = EDIT_DATA_DIR / path
+def _content_for(path: str, wt: Path) -> str | None:
+    p = wt / path
     if p.exists():
         try:
             return p.read_text(encoding="utf-8")
         except OSError:
             return None
-    return _read_blob("HEAD", path)  # 삭제된 파일은 HEAD 기준으로 요약
+    return _read_blob("HEAD", path, cwd=wt)  # 삭제된 파일은 HEAD 기준으로 요약
 
 
-def file_states() -> dict[str, Any]:
+def file_states(branch: str | None = None) -> dict[str, Any]:
     """develop 대비 변경 파일 목록과 각 파일의 상태.
 
     상태 우선순위: unstaged > staged > committed > pushed
       - unstaged: worktree 변경이 아직 stage 안 됨
       - staged: index에 올라감 (커밋 대기)
-      - committed: 현재 브랜치에 커밋됨 (origin 미반영)
+      - committed: 브랜치에 커밋됨 (origin 미반영)
       - pushed: origin/<branch>까지 반영됨
     """
-    branch = current_branch()
+    b = _check_branch(branch or EDIT_BASE_BRANCH)
+    wt = _wt(b)
     states: dict[str, dict[str, Any]] = {}
 
     def put(path: str, state: str, change: str) -> None:
         if path in states:
             return  # 먼저 넣은(우선순위 높은) 상태 유지
-        entry = _summarize(path, _content_for(path))
+        entry = _summarize(path, _content_for(path, wt))
         entry.update(state=state, change=change)
         states[path] = entry
 
     # 1) worktree/index (unstaged, staged)
-    for x, y, path in _parse_porcelain_z(_git("status", "--porcelain", "-z")):
+    for x, y, path in _parse_porcelain_z(_git("status", "--porcelain", "-z", cwd=wt)):
         if y != " " and y != "?":
             put(path, "unstaged", "D" if y == "D" else ("A" if x == "?" or y == "A" else "M"))
         elif y == "?":
@@ -228,129 +257,146 @@ def file_states() -> dict[str, Any]:
             put(path, "staged", "D" if x == "D" else ("A" if x == "A" else "M"))
 
     # 2) 커밋된 변경 (develop 머지베이스 대비)
-    if branch != EDIT_BASE_BRANCH:
-        committed = _diff_names(f"{EDIT_BASE_BRANCH}...HEAD")
+    if b != EDIT_BASE_BRANCH:
+        committed = _diff_names(f"{EDIT_BASE_BRANCH}...HEAD", cwd=wt)
         unpushed: set[str] = set(committed)
-        if _remote_exists(branch):
-            unpushed = set(_diff_names(f"refs/remotes/origin/{branch}..HEAD"))
+        if _remote_exists(b):
+            unpushed = set(_diff_names(f"refs/remotes/origin/{b}..HEAD", cwd=wt))
         for path, change in committed.items():
             put(path, "committed" if path in unpushed else "pushed", change)
 
-    return {"branch": branch, "files": sorted(states.values(), key=lambda e: e["path"])}
+    return {"branch": b, "files": sorted(states.values(), key=lambda e: e["path"])}
 
 
 # ---------------------------------------------------------------------------
-# stage / commit / push
+# stage / commit / push — 각 브랜치 worktree에서 수행
 # ---------------------------------------------------------------------------
-def stage(paths: list[str] | None = None) -> None:
+def stage(branch: str | None, paths: list[str] | None = None) -> None:
+    wt = _wt(branch)
     if paths:
-        _git("add", "--", *paths)
+        _git("add", "--", *paths, cwd=wt)
     else:
-        _git("add", "-A")
+        _git("add", "-A", cwd=wt)
 
 
-def unstage(paths: list[str] | None = None) -> None:
+def unstage(branch: str | None, paths: list[str] | None = None) -> None:
+    wt = _wt(branch)
     if paths:
-        _git("restore", "--staged", "--", *paths)
+        _git("restore", "--staged", "--", *paths, cwd=wt)
     else:
-        _git("restore", "--staged", ".")
+        _git("restore", "--staged", ".", cwd=wt)
 
 
-def discard(paths: list[str]) -> None:
+def discard(branch: str | None, paths: list[str]) -> None:
     """worktree 변경 되돌리기 (미추적 파일은 삭제)."""
+    wt = _wt(branch)
     for path in paths:
-        p = EDIT_DATA_DIR / path
-        tracked = _run("ls-files", "--error-unmatch", "--", path).returncode == 0
+        p = wt / path
+        tracked = _run("ls-files", "--error-unmatch", "--", path, cwd=wt).returncode == 0
         if tracked:
-            _git("restore", "--staged", "--worktree", "--", path)
+            _git("restore", "--staged", "--worktree", "--", path, cwd=wt)
         elif p.exists():
             p.unlink()
 
 
-def _safe_edit_path(path: str) -> Path:
-    target = (EDIT_DATA_DIR / path).resolve()
-    if not target.is_relative_to(EDIT_DATA_DIR.resolve()) or ".git" in Path(path).parts:
+def discard_all(branch: str | None) -> None:
+    """해당 브랜치 worktree의 커밋 전 변경 전체 초기화."""
+    wt = _wt(branch)
+    _git("reset", "--hard", "HEAD", cwd=wt)
+    _git("clean", "-fd", cwd=wt)
+
+
+def _safe_edit_path(wt: Path, path: str) -> Path:
+    target = (wt / path).resolve()
+    if not target.is_relative_to(wt.resolve()) or ".git" in Path(path).parts:
         raise GitError(f"허용되지 않는 경로입니다: {path!r}")
     return target
 
 
-def read_file(path: str) -> str | None:
-    """편집 worktree의 파일 내용 (드래프트 스냅샷용)."""
-    target = _safe_edit_path(path)
+def read_file(branch: str | None, path: str) -> str | None:
+    target = _safe_edit_path(_wt(branch), path)
     return target.read_text(encoding="utf-8") if target.is_file() else None
 
 
-def write_file(path: str, content: str) -> None:
-    """편집 worktree에 파일 쓰기 (드래프트 복원용 — 워크플로우 외 일반 파일 포함)."""
-    target = _safe_edit_path(path)
+def write_file(branch: str | None, path: str, content: str) -> None:
+    target = _safe_edit_path(_wt(branch), path)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(content, encoding="utf-8")
 
 
-def discard_all() -> None:
-    """커밋 전 변경 전체 초기화 — index/worktree 리셋 + 미추적 파일 제거.
-
-    편집 메뉴 재진입 시 develop으로 되돌리기 전에 호출된다
-    (프론트가 변경 내용을 localStorage 드래프트로 스냅샷한 뒤).
-    """
-    if in_merge():
-        raise GitError("머지 진행 중에는 초기화할 수 없습니다. 머지를 완료/중단하세요.")
-    _git("reset", "--hard", "HEAD")
-    _git("clean", "-fd")
-
-
-def commit(message: str, stage_all: bool = False) -> str:
-    if current_branch() == EDIT_BASE_BRANCH and not in_merge():
+def commit(branch: str | None, message: str, stage_all: bool = False) -> str:
+    b = _check_branch(branch or EDIT_BASE_BRANCH)
+    if b == EDIT_BASE_BRANCH:
         raise GitError(f"{EDIT_BASE_BRANCH} 브랜치에는 직접 커밋할 수 없습니다. feature 브랜치를 만드세요.")
+    wt = _wt(b)
     if stage_all:
-        _git("add", "-A")
-    if not _git("diff", "--cached", "--name-only").strip():
+        _git("add", "-A", cwd=wt)
+    if not _git("diff", "--cached", "--name-only", cwd=wt).strip():
         raise GitError("커밋할 stage된 변경이 없습니다.")
-    _git("commit", "-m", message)
-    return _git("rev-parse", "--short", "HEAD").strip()
+    _git("commit", "-m", message, cwd=wt)
+    return _git("rev-parse", "--short", "HEAD", cwd=wt).strip()
 
 
-def push() -> dict[str, Any]:
-    branch = current_branch()
-    proc = _run("push", "-u", "origin", branch)
+def push(branch: str | None) -> dict[str, Any]:
+    b = _check_branch(branch or EDIT_BASE_BRANCH)
+    proc = _run("push", "-u", "origin", b, cwd=_wt(b))
     if proc.returncode != 0:
         raise GitError((proc.stderr or proc.stdout).strip())
-    return {"branch": branch, "pushed": True}
+    return {"branch": b, "pushed": True}
 
 
-def _push_best_effort(branch: str) -> bool:
-    return _run("push", "-u", "origin", branch).returncode == 0
+def _push_best_effort(branch: str, cwd: Path) -> bool:
+    return _run("push", "-u", "origin", branch, cwd=cwd).returncode == 0
+
+
+def _cleanup_branch(branch: str) -> bool:
+    """머지 완료된 feature 브랜치의 worktree/브랜치 제거 (best-effort)."""
+    try:
+        path = edit_worktree_path(branch)
+        if (path / ".git").is_file():
+            _git("worktree", "remove", "--force", str(path), cwd=DATA_DIR)
+        if branch_exists(branch):
+            _git("branch", "-D", branch, cwd=DATA_DIR)
+        _run("push", "origin", "--delete", branch, cwd=DATA_DIR)  # 원격은 best-effort
+        return True
+    except GitError:
+        return False
 
 
 # ---------------------------------------------------------------------------
-# develop 머지 + 충돌 해결
+# develop 머지 + 충돌 해결 — develop worktree에서 수행
 # ---------------------------------------------------------------------------
-def merge_to_base() -> dict[str, Any]:
-    """현재 feature 브랜치를 develop에 --no-ff 머지. 충돌 시 머지 상태 유지."""
-    branch = current_branch()
+def merge_to_base(branch: str) -> dict[str, Any]:
+    """feature 브랜치를 develop에 --no-ff 머지. 충돌 시 develop worktree에 머지 상태 유지."""
+    ensure_base()
+    b = _check_branch(branch)
+    if b in (EDIT_BASE_BRANCH, PROD_BRANCH):
+        raise GitError("feature 브랜치만 머지할 수 있습니다.")
+    if not branch_exists(b):
+        raise GitError(f"브랜치가 없습니다: {b}")
     if in_merge():
-        raise GitError("이미 머지가 진행 중입니다.")
-    if branch == EDIT_BASE_BRANCH or branch == PROD_BRANCH:
-        raise GitError("feature 브랜치에서만 머지를 시작할 수 있습니다.")
-    if is_dirty():
+        raise GitError("이미 머지가 진행 중입니다. 먼저 완료/중단하세요.")
+    if is_dirty(b):
         raise GitError("커밋되지 않은 변경이 있습니다. 먼저 커밋하세요.")
+    base_wt = _wt(None)
+    if is_dirty(None):
+        raise GitError(f"{EDIT_BASE_BRANCH} worktree에 예기치 않은 변경이 있습니다.")
 
-    _git("switch", EDIT_BASE_BRANCH)
-    _run("pull", "--ff-only", "origin", EDIT_BASE_BRANCH)  # 오프라인이면 무시
-    proc = _run("merge", "--no-ff", branch, "-m", f"merge: {branch} → {EDIT_BASE_BRANCH}")
+    _run("pull", "--ff-only", "origin", EDIT_BASE_BRANCH, cwd=base_wt)  # 오프라인이면 무시
+    proc = _run("merge", "--no-ff", b, "-m", f"merge: {b} → {EDIT_BASE_BRANCH}", cwd=base_wt)
     if proc.returncode != 0:
         if in_merge():
             return {
                 "status": "conflict",
-                "source_branch": branch,
+                "source_branch": b,
                 "files": [c["path"] for c in conflicts()["files"]],
             }
-        _git("switch", branch)  # 머지가 시작조차 못 한 경우 원위치
         raise GitError((proc.stderr or proc.stdout).strip())
     return {
         "status": "merged",
-        "source_branch": branch,
-        "pushed": _push_best_effort(EDIT_BASE_BRANCH),
+        "source_branch": b,
+        "pushed": _push_best_effort(EDIT_BASE_BRANCH, base_wt),
+        "branch_removed": _cleanup_branch(b),
     }
 
 
@@ -358,18 +404,19 @@ def conflicts() -> dict[str, Any]:
     """충돌 파일별 base/ours(develop)/theirs(feature) 내용."""
     if not in_merge():
         return {"in_merge": False, "files": [], "source_branch": None}
-    raw = _git("diff", "--name-only", "-z", "--diff-filter=U")
+    wt = _wt(None)
+    raw = _git("diff", "--name-only", "-z", "--diff-filter=U", cwd=wt)
     paths = [p for p in raw.split("\0") if p]
-    source = _run("name-rev", "--name-only", "MERGE_HEAD").stdout.strip() or None
+    source = _run("name-rev", "--name-only", "MERGE_HEAD", cwd=wt).stdout.strip() or None
     files = []
     for path in paths:
-        merged_path = EDIT_DATA_DIR / path
+        merged_path = wt / path
         files.append(
             {
-                **_summarize(path, _read_blob(":3", path) or _read_blob(":2", path)),
-                "base": _read_blob(":1", path),
-                "ours": _read_blob(":2", path),      # develop 쪽
-                "theirs": _read_blob(":3", path),    # feature 쪽
+                **_summarize(path, _read_blob(":3", path, cwd=wt) or _read_blob(":2", path, cwd=wt)),
+                "base": _read_blob(":1", path, cwd=wt),
+                "ours": _read_blob(":2", path, cwd=wt),      # develop 쪽
+                "theirs": _read_blob(":3", path, cwd=wt),    # feature 쪽
                 "merged": merged_path.read_text(encoding="utf-8") if merged_path.exists() else None,
             }
         )
@@ -377,31 +424,35 @@ def conflicts() -> dict[str, Any]:
 
 
 def resolve_conflict(path: str, content: str) -> None:
-    """해결된 내용으로 파일을 덮어쓰고 stage."""
+    """해결된 내용으로 develop worktree 파일을 덮어쓰고 stage."""
     if not in_merge():
         raise GitError("진행 중인 머지가 없습니다.")
-    target = (EDIT_DATA_DIR / path).resolve()
-    if not target.is_relative_to(EDIT_DATA_DIR.resolve()):
-        raise GitError(f"허용되지 않는 경로입니다: {path!r}")
+    wt = _wt(None)
+    target = _safe_edit_path(wt, path)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(content, encoding="utf-8")
-    _git("add", "--", path)
+    _git("add", "--", path, cwd=wt)
 
 
 def merge_continue() -> dict[str, Any]:
     if not in_merge():
         raise GitError("진행 중인 머지가 없습니다.")
-    remaining = [p for p in _git("diff", "--name-only", "-z", "--diff-filter=U").split("\0") if p]
+    wt = _wt(None)
+    remaining = [p for p in _git("diff", "--name-only", "-z", "--diff-filter=U", cwd=wt).split("\0") if p]
     if remaining:
         raise GitError(f"아직 해결되지 않은 충돌이 있습니다: {', '.join(remaining)}")
-    _git("commit", "--no-edit")
-    return {"status": "merged", "pushed": _push_best_effort(EDIT_BASE_BRANCH)}
+    source = _run("name-rev", "--name-only", "MERGE_HEAD", cwd=wt).stdout.strip()
+    _git("commit", "--no-edit", cwd=wt)
+    result = {"status": "merged", "pushed": _push_best_effort(EDIT_BASE_BRANCH, wt)}
+    if source and source not in (EDIT_BASE_BRANCH, PROD_BRANCH):
+        result["branch_removed"] = _cleanup_branch(source)
+    return result
 
 
 def merge_abort() -> None:
     if not in_merge():
         raise GitError("진행 중인 머지가 없습니다.")
-    _git("merge", "--abort")
+    _git("merge", "--abort", cwd=_wt(None))
 
 
 # ---------------------------------------------------------------------------
@@ -437,12 +488,13 @@ def release_to_prod() -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 def pending_for_prod() -> dict[str, Any]:
     """develop에는 있지만 master(운영)에 아직 반영되지 않은 변경 목록."""
-    changed = _diff_names(f"{PROD_BRANCH}...{EDIT_BASE_BRANCH}")
+    ensure_base()
+    changed = _diff_names(f"{PROD_BRANCH}...{EDIT_BASE_BRANCH}", cwd=DATA_DIR)
     files = []
     for path, change in sorted(changed.items()):
-        content = _read_blob(EDIT_BASE_BRANCH, path)
+        content = _read_blob(EDIT_BASE_BRANCH, path, cwd=DATA_DIR)
         if content is None:  # develop에서 삭제된 파일은 master 기준으로 요약
-            content = _read_blob(PROD_BRANCH, path)
+            content = _read_blob(PROD_BRANCH, path, cwd=DATA_DIR)
         entry = _summarize(path, content)
         entry["change"] = change
         files.append(entry)

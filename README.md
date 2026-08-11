@@ -45,15 +45,18 @@ flowwork-workdata/               # FLOWWORK_DATA_DIR가 가리키는 경로 (mas
 ├── api-collections/             # {workspace}/{collection-id}.json
 ├── domains.json                 # 도메인 → 팔레트 색상 id 매핑
 └── executions/                  # {execution_id}.jsonl (런타임 생성, git 제외)
-flowwork-workdata-edit/          # 편집용 worktree (서버가 자동 생성 — develop/feature 체크아웃)
+flowwork-workdata-edit/          # 브랜치별 편집 worktree (서버가 자동 생성)
+├── develop/                     # 편집 기본 뷰 + feature 머지 수행
+└── feature__{이름}/             # 수정 모드 — 브랜치마다 전용 작업 공간
 ```
 
 - **master** = 운영 데이터. "워크플로우" 메뉴(실행)는 항상 master 트리를 읽고, API로 직접 수정할 수 없다.
-- **develop** = 편집 기준. "편집" 메뉴는 편집 worktree(develop/feature 브랜치)를 읽는다.
-- **feature/*** = 수정 모드. 편집 메뉴에서 브랜치를 만들면 등록/수정 버튼이 활성화된다.
+- **develop** = 편집 기준. "편집" 메뉴의 기본 뷰이자 feature 머지 대상.
+- **feature/*** = 수정 모드. 브랜치마다 전용 worktree가 있어 **여러 명이 서로 다른 브랜치를
+  동시에 편집**할 수 있고, 커밋 전 변경도 브랜치별로 독립 보존된다.
 
 `server/.env`에 `FLOWWORK_DATA_DIR=/path/to/flowwork-workdata`를 설정해 연결합니다
-(미설정 시 기본값 `server/data`). 편집 worktree 경로는 `FLOWWORK_EDIT_DATA_DIR`
+(미설정 시 기본값 `server/data`). 편집 worktree 부모 경로는 `FLOWWORK_EDIT_DATA_DIR`
 (기본 `{FLOWWORK_DATA_DIR}-edit`)로 바꿀 수 있습니다.
 
 ## 실행 방법 (POC)
@@ -133,10 +136,10 @@ cd web && npm test           # 실행 엔진 + 캐시 26 케이스
 ### 편집(git) — 코드처럼 리뷰·머지되는 워크플로우 데이터
 - **워크플로우 메뉴는 실행 전용** — 등록/수정은 "편집" 메뉴로 분리 (운영 master 트리는 API 쓰기 403)
 - **수정 모드 = URL의 브랜치** — `/editor/b/{branch}/…` 로 feature 브랜치를 URL에 담는다. 편집 메뉴 재진입(`/editor`)은 항상 develop(읽기 전용)으로 시작
-- **커밋 전 변경은 localStorage 드래프트로 보존** — develop 복귀 시 커밋 전 수정(워크플로우 + domains.json 등 일반 파일)을 브라우저에 스냅샷 → 같은 브랜치로 다시 들어오면 worktree에 복원해 이어서 수정. 저장/삭제 시에도 드래프트로 미러링, 커밋·머지 시 폐기
-- **커밋 전 로컬 임시 저장** — 저장은 편집 worktree 파일 쓰기라 서버 재시작에도 유지되고, 그 내용 그대로 실행해 동작 확인 가능
+- **브랜치별 worktree — 동시 편집** — 브랜치마다 전용 worktree를 두어 여러 명이 서로 다른 브랜치를 동시에 편집한다. 커밋 전 변경은 그 브랜치 worktree에 독립 보존되어 다른 브랜치 작업/재진입에 영향받지 않는다
+- **커밋 전 로컬 임시 저장** — 저장은 브랜치 worktree 파일 쓰기라 서버 재시작에도 유지되고, 그 내용 그대로 실행해 동작 확인 가능
 - **파일 상태 배지** — develop 대비 `수정됨(unstaged) → 스테이지 → 커밋됨 → 푸시됨` 을 워크플로우별로 표시. 사이드바에도 업무별 집계 배지, 도메인(상위 메뉴)에는 변경 알림 점
-- **develop 머지** — 커밋 완료 후 버튼 한 번으로 --no-ff 머지(+push). 충돌 시 해결 화면 제공
+- **develop 머지** — 커밋 완료 후 버튼 한 번으로 --no-ff 머지(+push, develop worktree에서 수행). 완료 시 feature 브랜치/worktree 자동 정리, 충돌 시 해결 화면 제공
 - **충돌 해결 화면** — develop/feature 두 버전을 **워크플로우 시각 비교(스텝 단위)** 와 **JSON 라인 diff** 로 좌우 비교하고, 해결안 JSON을 직접 편집해 확정 → 머지 커밋
 - **운영 미반영 목록 + 운영 반영** — master vs develop 비교로 미반영 워크플로우를 나열하고, "운영 반영" 버튼으로 develop → master 병합 + push (운영 트리에서 수행, 워크플로우 메뉴에 즉시 반영)
 

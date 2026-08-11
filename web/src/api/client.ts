@@ -36,14 +36,29 @@ export interface WorkflowSummary {
   description?: string;
 }
 
-// 데이터 소스: prod(운영 master 트리) | edit(편집 worktree — develop/feature 브랜치)
+// 데이터 소스: prod(운영 master 트리) | edit(브랜치별 편집 worktree)
 export type DataSource = "prod" | "edit";
 
-const src = (source?: DataSource) => (source === "edit" ? "?source=edit" : "");
+// 현재 편집 중인 브랜치 (EditPage가 URL 브랜치로 설정; null = develop).
+// 브랜치마다 전용 worktree가 있어 edit 소스 요청에 branch를 함께 보낸다.
+let editBranch: string | null = null;
+
+export function setEditBranch(branch: string | null) {
+  editBranch = branch;
+}
+
+const src = (source?: DataSource) => {
+  if (source !== "edit") return "";
+  const qs = new URLSearchParams({ source: "edit" });
+  if (editBranch) qs.set("branch", editBranch);
+  return `?${qs.toString()}`;
+};
+
+const withBranch = (body: Record<string, unknown>) => ({ ...body, branch: editBranch });
 
 // ---- 편집(git) 타입 ----
 export interface EditState {
-  current_branch: string;
+  branch: string;
   base_branch: string;
   prod_branch: string;
   feature_branches: string[];
@@ -91,6 +106,7 @@ export interface MergeResult {
   status: "merged" | "conflict";
   source_branch?: string;
   pushed?: boolean;
+  branch_removed?: boolean;
   files?: string[];
 }
 
@@ -113,13 +129,13 @@ export const api = {
 
   // 등록/수정/삭제는 편집 worktree에서만 가능 (서버가 prod 쓰기를 403으로 거부)
   saveWorkflow: (wf: Workflow) =>
-    req<{ status: string }>(`/api/workflows/${wf.id}?source=edit`, {
+    req<{ status: string }>(`/api/workflows/${wf.id}${src("edit")}`, {
       method: "PUT",
       body: JSON.stringify(wf),
     }),
 
   deleteWorkflow: (id: string) =>
-    req<{ status: string }>(`/api/workflows/${id}?source=edit`, { method: "DELETE" }),
+    req<{ status: string }>(`/api/workflows/${id}${src("edit")}`, { method: "DELETE" }),
 
   searchCatalog: (q = "") =>
     req<{ results: CatalogEntry[]; catalog_version: string | null }>(
@@ -134,16 +150,19 @@ export const api = {
     req<{ colors: Record<string, string> }>(`/api/domains${src(source)}`).then((r) => r.colors),
 
   setDomainColor: (domain: string, color: string) =>
-    req<{ status: string }>(`/api/domains/${encodeURIComponent(domain)}?source=edit`, {
+    req<{ status: string }>(`/api/domains/${encodeURIComponent(domain)}${src("edit")}`, {
       method: "PUT",
       body: JSON.stringify({ color }),
     }),
 
-  // ---- 편집(git) — 브랜치/상태/커밋/머지/충돌 ----
-  editState: () => req<EditState>("/api/edit/state"),
+  // ---- 편집(git) — 브랜치별 worktree의 상태/커밋/머지/충돌 ----
+  editState: () =>
+    req<EditState>(`/api/edit/state${editBranch ? `?branch=${encodeURIComponent(editBranch)}` : ""}`),
 
   editStatus: () =>
-    req<{ branch: string; files: EditFileEntry[] }>("/api/edit/status"),
+    req<{ branch: string; files: EditFileEntry[] }>(
+      `/api/edit/status${editBranch ? `?branch=${encodeURIComponent(editBranch)}` : ""}`,
+    ),
 
   editCreateBranch: (name: string) =>
     req<{ branch: string }>("/api/edit/branches", {
@@ -151,52 +170,42 @@ export const api = {
       body: JSON.stringify({ name }),
     }),
 
-  editCheckout: (name: string) =>
-    req<{ branch: string }>("/api/edit/checkout", {
-      method: "POST",
-      body: JSON.stringify({ name }),
-    }),
-
   editStage: (paths?: string[]) =>
     req<{ status: string }>("/api/edit/stage", {
       method: "POST",
-      body: JSON.stringify({ paths: paths ?? null }),
+      body: JSON.stringify(withBranch({ paths: paths ?? null })),
     }),
 
   editUnstage: (paths?: string[]) =>
     req<{ status: string }>("/api/edit/unstage", {
       method: "POST",
-      body: JSON.stringify({ paths: paths ?? null }),
+      body: JSON.stringify(withBranch({ paths: paths ?? null })),
     }),
 
   editDiscard: (paths: string[]) =>
     req<{ status: string }>("/api/edit/discard", {
       method: "POST",
-      body: JSON.stringify({ paths }),
-    }),
-
-  // 커밋 전 변경 전체 초기화 (드래프트 스냅샷 후 develop 복귀용)
-  editDiscardAll: () => req<{ status: string }>("/api/edit/discard-all", { method: "POST" }),
-
-  // 편집 worktree 일반 파일 읽기/쓰기 — 워크플로우 외 파일(domains.json 등) 드래프트용
-  editReadFile: (path: string) =>
-    req<{ path: string; content: string | null }>(`/api/edit/file?path=${encodeURIComponent(path)}`),
-
-  editWriteFile: (path: string, content: string) =>
-    req<{ status: string }>("/api/edit/file", {
-      method: "POST",
-      body: JSON.stringify({ path, content }),
+      body: JSON.stringify(withBranch({ paths })),
     }),
 
   editCommit: (message: string, stageAll = true) =>
     req<{ commit: string }>("/api/edit/commit", {
       method: "POST",
-      body: JSON.stringify({ message, stage_all: stageAll }),
+      body: JSON.stringify(withBranch({ message, stage_all: stageAll })),
     }),
 
-  editPush: () => req<{ branch: string; pushed: boolean }>("/api/edit/push", { method: "POST" }),
+  editPush: () =>
+    req<{ branch: string; pushed: boolean }>("/api/edit/push", {
+      method: "POST",
+      body: JSON.stringify(withBranch({})),
+    }),
 
-  editMerge: () => req<MergeResult>("/api/edit/merge", { method: "POST" }),
+  // 현재 브랜치(worktree)를 develop에 머지 — 완료 시 브랜치/worktree 정리
+  editMerge: () =>
+    req<MergeResult>("/api/edit/merge", {
+      method: "POST",
+      body: JSON.stringify({ branch: editBranch }),
+    }),
 
   editConflicts: () =>
     req<{ in_merge: boolean; source_branch: string | null; files: ConflictFile[] }>(
