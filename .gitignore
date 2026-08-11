@@ -15,7 +15,7 @@ dist/
 *.local
 *.tsbuildinfo
 
-# 워크플로우 설정·런타임 데이터 — 별도 저장소로 분리 (github.com/geeshow/flowwork-jobs)
+# 워크플로우 설정·런타임 데이터 — 별도 저장소로 분리 (github.com/geeshow/flowwork-workdata)
 server/data/
 
 # Env / secrets

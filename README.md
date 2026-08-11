@@ -37,17 +37,17 @@ flowwork/
 ### 데이터 저장소 (분리)
 
 워크플로우 설정 데이터는 소스코드와 분리해
-[geeshow/flowwork-jobs](https://github.com/geeshow/flowwork-jobs)에서 별도 버전 관리합니다.
+[geeshow/flowwork-workdata](https://github.com/geeshow/flowwork-workdata)에서 별도 버전 관리합니다.
 
 ```
-flowwork-jobs/                   # FLOWWORK_DATA_DIR가 가리키는 경로
+flowwork-workdata/                   # FLOWWORK_DATA_DIR가 가리키는 경로
 ├── workflows/                   # {도메인}/{업무}/{id}.json
 ├── api-collections/             # {workspace}/{collection-id}.json
 ├── domains.json                 # 도메인 → 팔레트 색상 id 매핑
 └── executions/                  # {execution_id}.jsonl (런타임 생성, git 제외)
 ```
 
-`server/.env`에 `FLOWWORK_DATA_DIR=/path/to/flowwork-jobs`를 설정해 연결합니다
+`server/.env`에 `FLOWWORK_DATA_DIR=/path/to/flowwork-workdata`를 설정해 연결합니다
 (미설정 시 기본값 `server/data`).
 
 ## 실행 방법 (POC)
