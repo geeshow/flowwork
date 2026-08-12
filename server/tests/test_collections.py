@@ -6,8 +6,16 @@ from fastapi.testclient import TestClient
 
 @pytest.fixture()
 def client(monkeypatch):
-    tmp = tempfile.mkdtemp()
-    monkeypatch.setenv("FLOWWORK_DATA_DIR", tmp)
+    # 쓰기는 source=edit(기본 develop worktree)로만 허용된다. 이 모듈은 콜렉션
+    # CRUD 자체를 검증하므로, edit(develop) 경로가 prod(DATA_DIR)와 같은 디렉토리가
+    # 되도록 배치해 기본 파라미터의 읽기/쓰기가 한 저장소를 보게 한다.
+    from pathlib import Path
+
+    tmp = Path(tempfile.mkdtemp())
+    data = tmp / "develop"
+    data.mkdir()
+    monkeypatch.setenv("FLOWWORK_DATA_DIR", str(data))
+    monkeypatch.setenv("FLOWWORK_EDIT_DATA_DIR", str(tmp))
     import importlib
 
     import app.collections as collections

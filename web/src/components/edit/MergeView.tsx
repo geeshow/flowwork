@@ -185,6 +185,10 @@ function ConflictCard({
             <h3>
               {file.name} <span className="muted">— {file.domain} / {file.task}</span>
             </h3>
+          ) : file.kind === "collection" ? (
+            <h3>
+              {file.name} <span className="muted">— API 콜렉션 · {file.workspace}</span>
+            </h3>
           ) : (
             <h3>
               <code>{file.path}</code>

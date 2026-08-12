@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import { api, type WorkflowSummary } from "./api/client";
 import { ExecutionDetail, HistoryMain } from "./components/HistoryView";
-import { ApiClientPage } from "./components/apic/ApiClientPage";
+import { ApicShell } from "./components/apic/ApicShell";
 import { EditPage, type EditorPage } from "./components/edit/EditPage";
 import { WorkflowLayout } from "./components/WorkflowLayout";
 import { WorkflowRunner } from "./components/WorkflowRunner";
@@ -16,7 +16,7 @@ type Route =
   | { view: "editor"; page: EditorPage; branch?: string }
   | { view: "history"; domain?: string; task?: string }
   | { view: "execution"; executionId: string }
-  | { view: "apic"; ws?: string };
+  | { view: "apic"; ws?: string; branch?: string };
 
 // 경로(pathname) → Route. 해시 없는 깔끔한 URL(/executions/{id} 등)을 파싱한다.
 function parseLocation(): Route {
@@ -34,7 +34,11 @@ function parseLocation(): Route {
   if (head === "executions" && a) return { view: "execution", executionId: a };
   if (head === "run" && a) return { view: "run", id: a };
   if (head === "t" && a && b) return { view: "task", domain: dec(a)!, task: dec(b)! };
-  if (head === "apic") return { view: "apic", ws: dec(a) };
+  if (head === "apic") {
+    // API 콜렉션도 브랜치 편집 플로우: /apic/b/{branch}/{ws?} | /apic/{ws?}
+    if (a === "b" && b) return { view: "apic", branch: dec(b), ws: dec(parts[3]) };
+    return { view: "apic", ws: dec(a) };
+  }
   if (head === "editor") {
     // 수정 모드는 브랜치를 URL에 담는다: /editor/b/{branch}/… (없으면 develop 기본)
     let branch: string | undefined;
@@ -164,10 +168,7 @@ export default function App() {
           </WorkflowLayout>
         ) : null}
         {route.view === "apic" ? (
-          <ApiClientPage
-            ws={route.ws}
-            onSelectWs={(w) => go(w ? `/apic/${encodeURIComponent(w)}` : "/apic")}
-          />
+          <ApicShell ws={route.ws} branch={route.branch} go={go} />
         ) : null}
         {route.view === "execution" ? (
           <WorkflowLayout title="워크플로우 이력" onOpenTask={(d, t) => go(historyTaskPath(d, t))}>

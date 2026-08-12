@@ -20,11 +20,13 @@ export function CollectionOverview({
   doc,
   onChange,
   onDelete,
+  canEdit = true,
 }: {
   ws: string;
   doc: ApicCollection;
   onChange: (doc: ApicCollection) => void;
   onDelete: () => void;
+  canEdit?: boolean; // 수정 모드(feature 브랜치)에서만 편집 액션 노출
 }) {
   const [envSel, setEnvSel] = useState<string | null>(doc.environments[0]?.name ?? null);
   const [error, setError] = useState<string | null>(null);
@@ -94,6 +96,7 @@ export function CollectionOverview({
         <input
           className="apic-name-input"
           value={doc.name}
+          readOnly={!canEdit}
           onChange={(e) => onChange({ ...doc, name: e.target.value })}
           placeholder="콜렉션 이름"
         />
@@ -104,14 +107,16 @@ export function CollectionOverview({
           <button className="link small" onClick={() => void exportAs("postman")}>
             내보내기(Postman)
           </button>
-          <button
-            className="link small danger"
-            onClick={() => {
-              if (window.confirm(`콜렉션 '${doc.name}'을(를) 삭제할까요?`)) onDelete();
-            }}
-          >
-            삭제
-          </button>
+          {canEdit ? (
+            <button
+              className="link small danger"
+              onClick={() => {
+                if (window.confirm(`콜렉션 '${doc.name}'을(를) 삭제할까요?`)) onDelete();
+              }}
+            >
+              삭제
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -120,9 +125,11 @@ export function CollectionOverview({
           <span className="muted">
             GitHub 연결됨: <code>{doc.source.url}</code>
           </span>
-          <button className="link small" onClick={() => void syncFromGithub()} disabled={syncing}>
-            {syncing ? "동기화 중…" : "⟳ 동기화"}
-          </button>
+          {canEdit ? (
+            <button className="link small" onClick={() => void syncFromGithub()} disabled={syncing}>
+              {syncing ? "동기화 중…" : "⟳ 동기화"}
+            </button>
+          ) : null}
           {syncedAt ? <span className="hint ok-text">✓ {syncedAt} 동기화됨</span> : null}
         </div>
       ) : null}
@@ -142,9 +149,11 @@ export function CollectionOverview({
               {doc.activeEnvironment === e.name ? " ✓" : ""}
             </button>
           ))}
-          <button className="link small" onClick={addEnv}>
-            + 환경
-          </button>
+          {canEdit ? (
+            <button className="link small" onClick={addEnv}>
+              + 환경
+            </button>
+          ) : null}
         </div>
 
         {env ? (
@@ -158,9 +167,11 @@ export function CollectionOverview({
                 />
                 활성 환경으로 사용
               </label>
-              <button className="link small danger" onClick={() => deleteEnv(env.name)}>
-                환경 삭제
-              </button>
+              {canEdit ? (
+                <button className="link small danger" onClick={() => deleteEnv(env.name)}>
+                  환경 삭제
+                </button>
+              ) : null}
             </div>
             <KVEditor
               rows={env.variables as ApicParam[]}

@@ -14,6 +14,7 @@ import type { Workflow } from "../../types";
 import { WorkflowEditor } from "../editor/WorkflowEditor";
 import { WorkflowLayout } from "../WorkflowLayout";
 import { WorkflowRunner } from "../WorkflowRunner";
+import { EditBar } from "./EditBar";
 import { MergeView } from "./MergeView";
 
 export type EditorPage =
@@ -134,7 +135,7 @@ export function EditPage({
   if (page.kind === "merge") {
     return (
       <div className="edit-shell">
-        <EditBar st={st} files={files} go={go} onAction={run} page={page} urlBranch={urlBranch} />
+        <EditBar st={st} files={files} go={go} onAction={run} urlBranch={urlBranch} basePath="/editor" inMergeView />
         {error ? <div className="error-banner">{error}</div> : null}
         <MergeView
           onDone={() => {
@@ -151,7 +152,7 @@ export function EditPage({
     if (!isFeature) {
       return (
         <div className="edit-shell">
-          <EditBar st={st} files={files} go={go} onAction={run} page={page} urlBranch={urlBranch} />
+          <EditBar st={st} files={files} go={go} onAction={run} urlBranch={urlBranch} basePath="/editor" inMergeView={false} />
           <div className="detail-empty">
             <p className="muted">
               워크플로우 등록/수정은 수정 모드(feature 브랜치)에서만 할 수 있습니다. 상단에서
@@ -163,7 +164,7 @@ export function EditPage({
     }
     return (
       <div className="edit-shell">
-        <EditBar st={st} files={files} go={go} onAction={run} page={page} urlBranch={urlBranch} />
+        <EditBar st={st} files={files} go={go} onAction={run} urlBranch={urlBranch} basePath="/editor" inMergeView={false} />
         {error ? <div className="error-banner">{error}</div> : null}
         <WorkflowEditor
           mode={page.kind}
@@ -182,7 +183,7 @@ export function EditPage({
 
   return (
     <div className="edit-shell">
-      <EditBar st={st} files={files} go={go} onAction={run} page={page} urlBranch={urlBranch} />
+      <EditBar st={st} files={files} go={go} onAction={run} urlBranch={urlBranch} basePath="/editor" inMergeView={false} />
       {error ? <div className="error-banner">{error}</div> : null}
       {notice ? <div className="notice-banner">{notice}</div> : null}
       <WorkflowLayout
@@ -244,170 +245,6 @@ export function EditPage({
   );
 }
 
-// ---------------------------------------------------------------------------
-// 상단 브랜치/작업 바
-// ---------------------------------------------------------------------------
-function EditBar({
-  st,
-  files,
-  go,
-  onAction,
-  page,
-  urlBranch,
-}: {
-  st: EditState | null;
-  files: EditFileEntry[];
-  go: (path: string) => void;
-  onAction: (op: () => Promise<unknown>, done?: string) => Promise<void>;
-  page: EditorPage;
-  urlBranch: string | null;
-}) {
-  const [newBranch, setNewBranch] = useState("");
-  const [commitOpen, setCommitOpen] = useState(false);
-  const [commitMsg, setCommitMsg] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  if (!st) return <div className="edit-bar"><span className="muted">편집 상태 불러오는 중…</span></div>;
-
-  const isFeature = urlBranch != null;
-  const uncommitted = files.filter((f) => f.state === "unstaged" || f.state === "staged").length;
-  const unmergedCommits = files.filter((f) => f.state === "committed" || f.state === "pushed").length;
-
-  const wrap = (op: () => Promise<unknown>, done?: string) => async () => {
-    setBusy(true);
-    try {
-      await onAction(op, done);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const doMerge = wrap(async () => {
-    const r = await api.editMerge();
-    go(r.status === "conflict" ? "/editor/merge" : "/editor"); // 완료 시 브랜치가 정리되므로 develop으로
-  });
-
-  return (
-    <div className="edit-bar">
-      <div className="edit-bar-left">
-        <span className={`branch-chip ${isFeature ? "feature" : "base"}`}>
-          {st.branch}
-          {isFeature ? " (수정 모드)" : " (읽기 전용)"}
-        </span>
-        <select
-          value={urlBranch ?? st.base_branch}
-          disabled={busy}
-          onChange={(e) => {
-            const v = e.target.value;
-            go(v === st.base_branch ? "/editor" : branchPath(v));
-          }}
-          title="브랜치 전환 (URL에 반영 — 브랜치마다 전용 worktree)"
-        >
-          <option value={st.base_branch}>{st.base_branch}</option>
-          {st.feature_branches.map((b) => (
-            <option key={b} value={b}>
-              {b}
-            </option>
-          ))}
-          {urlBranch && !st.feature_branches.includes(urlBranch) && urlBranch !== st.base_branch ? (
-            <option value={urlBranch}>{urlBranch}</option>
-          ) : null}
-        </select>
-
-        {!isFeature ? (
-          <span className="edit-newbranch">
-            <input
-              placeholder="새 feature 브랜치 이름"
-              value={newBranch}
-              onChange={(e) => setNewBranch(e.target.value)}
-            />
-            <button
-              className="primary small"
-              disabled={busy || !newBranch.trim()}
-              onClick={wrap(async () => {
-                const r = await api.editCreateBranch(newBranch.trim());
-                setNewBranch("");
-                go(branchPath(r.branch)); // 수정 모드 진입 — 브랜치를 URL에 반영
-              })}
-            >
-              수정 모드 시작
-            </button>
-          </span>
-        ) : null}
-      </div>
-
-      <div className="edit-bar-right">
-        {st.in_merge ? (
-          <>
-            <span className="merge-warn">⚠ develop 머지 충돌 해결 필요</span>
-            {page.kind !== "merge" ? (
-              <button className="primary small" onClick={() => go("/editor/merge")}>
-                충돌 해결 →
-              </button>
-            ) : null}
-          </>
-        ) : null}
-        {isFeature ? (
-          <>
-            <span className="muted">
-              변경 {uncommitted}건 · 커밋됨 {unmergedCommits}건
-            </span>
-            {commitOpen ? (
-              <span className="edit-commit-form">
-                <input
-                  placeholder="커밋 메시지"
-                  value={commitMsg}
-                  autoFocus
-                  onChange={(e) => setCommitMsg(e.target.value)}
-                />
-                <button
-                  className="primary small"
-                  disabled={busy || !commitMsg.trim()}
-                  onClick={wrap(async () => {
-                    await api.editCommit(commitMsg.trim(), true);
-                    setCommitMsg("");
-                    setCommitOpen(false);
-                  }, "커밋했습니다")}
-                >
-                  커밋
-                </button>
-                <button className="link" onClick={() => setCommitOpen(false)}>
-                  취소
-                </button>
-              </span>
-            ) : (
-              <button
-                className="small"
-                disabled={busy || uncommitted === 0}
-                onClick={() => setCommitOpen(true)}
-                title="변경 전체를 스테이지하고 커밋"
-              >
-                커밋…
-              </button>
-            )}
-            <button className="small" disabled={busy} onClick={wrap(() => api.editPush(), "푸시했습니다")}>
-              푸시
-            </button>
-            <button
-              className="primary small"
-              disabled={busy || st.in_merge || uncommitted > 0 || unmergedCommits === 0}
-              title={
-                st.in_merge
-                  ? "진행 중인 머지를 먼저 완료/중단하세요"
-                  : uncommitted > 0
-                    ? "커밋되지 않은 변경이 있습니다"
-                    : `${st.base_branch}에 머지`
-              }
-              onClick={doMerge}
-            >
-              {st.base_branch}에 머지
-            </button>
-          </>
-        ) : null}
-      </div>
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // 홈: 변경 파일 패널 + 운영(master) 미반영 목록 + 운영 반영
@@ -461,6 +298,11 @@ function EditHome({
                       <>
                         <strong>{f.name}</strong>
                         <span className="muted"> — {f.domain} / {f.task}</span>
+                      </>
+                    ) : f.kind === "collection" ? (
+                      <>
+                        <strong>{f.name}</strong>
+                        <span className="muted"> — API 콜렉션 · {f.workspace}</span>
                       </>
                     ) : (
                       <code>{f.path}</code>
@@ -546,6 +388,11 @@ function EditHome({
                     <>
                       <strong>{f.name}</strong>
                       <span className="muted"> — {f.domain} / {f.task}</span>
+                    </>
+                  ) : f.kind === "collection" ? (
+                    <>
+                      <strong>{f.name}</strong>
+                      <span className="muted"> — API 콜렉션 · {f.workspace}</span>
                     </>
                   ) : (
                     <code>{f.path}</code>

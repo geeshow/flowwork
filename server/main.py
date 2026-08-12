@@ -241,20 +241,20 @@ async def set_domain_color(
 #    워크플로우는 API 콜렉션에 등록된 API만 사용할 수 있다.
 # ---------------------------------------------------------------------------
 @app.get("/api/catalog/search", response_model=CatalogSearchResult)
-async def search_catalog(q: str = "") -> CatalogSearchResult:
-    results, version = catalog.search(q)
+async def search_catalog(q: str = "", source: str = "prod", branch: str | None = None) -> CatalogSearchResult:
+    results, version = catalog.search(q, source=_check_source(source), branch=branch)
     return CatalogSearchResult(results=results, catalog_version=version)
 
 
 @app.get("/api/catalog/environments")
-async def get_environments() -> dict:
+async def get_environments(source: str = "prod", branch: str | None = None) -> dict:
     # 모든 콜렉션의 환경 병합. vault:// 참조는 그대로 반환(프록시가 호출 직전 치환)
-    return {"values": catalog.environments()}
+    return {"values": catalog.environments(_check_source(source), branch)}
 
 
 @app.get("/api/catalog/entry/{entry_id}")
-async def get_catalog_entry(entry_id: str) -> dict:
-    entry = catalog.get_entry(entry_id)
+async def get_catalog_entry(entry_id: str, source: str = "prod", branch: str | None = None) -> dict:
+    entry = catalog.get_entry(entry_id, _check_source(source), branch)
     if entry is None:
         raise HTTPException(404, "카탈로그 항목을 찾을 수 없습니다")
     return entry.model_dump()
@@ -262,29 +262,33 @@ async def get_catalog_entry(entry_id: str) -> dict:
 
 # ---------------------------------------------------------------------------
 # 5. API 콜렉션 (Bruno 스타일 workspace/collection + Import/Export)
+#    워크플로우와 동일한 브랜치 편집 플로우 — 쓰기는 source=edit(브랜치 worktree)만.
 # ---------------------------------------------------------------------------
 class NameBody(BaseModel):
     name: str
 
 
 @app.get("/api/apic/workspaces")
-async def apic_list_workspaces() -> dict:
-    return {"workspaces": collections.list_workspaces()}
+async def apic_list_workspaces(source: str = "prod", branch: str | None = None) -> dict:
+    try:
+        return {"workspaces": collections.list_workspaces(_check_source(source), branch)}
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
 
 
 @app.post("/api/apic/workspaces", response_model=SaveResult)
-async def apic_create_workspace(body: NameBody) -> SaveResult:
+async def apic_create_workspace(body: NameBody, source: str = "edit", branch: str | None = None) -> SaveResult:
     try:
-        collections.create_workspace(body.name)
+        collections.create_workspace(body.name, _check_editable(source), branch)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     return SaveResult(status="saved")
 
 
 @app.delete("/api/apic/workspaces/{workspace}", response_model=SaveResult)
-async def apic_delete_workspace(workspace: str) -> SaveResult:
+async def apic_delete_workspace(workspace: str, source: str = "edit", branch: str | None = None) -> SaveResult:
     try:
-        deleted = collections.delete_workspace(workspace)
+        deleted = collections.delete_workspace(workspace, _check_editable(source), branch)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     if not deleted:
@@ -293,25 +297,29 @@ async def apic_delete_workspace(workspace: str) -> SaveResult:
 
 
 @app.get("/api/apic/workspaces/{workspace}/collections")
-async def apic_list_collections(workspace: str) -> dict:
+async def apic_list_collections(workspace: str, source: str = "prod", branch: str | None = None) -> dict:
     try:
-        return {"collections": collections.list_collections(workspace)}
+        return {"collections": collections.list_collections(workspace, _check_source(source), branch)}
     except ValueError as e:
         raise HTTPException(404, str(e)) from e
 
 
 @app.post("/api/apic/workspaces/{workspace}/collections")
-async def apic_create_collection(workspace: str, body: NameBody) -> dict:
+async def apic_create_collection(
+    workspace: str, body: NameBody, source: str = "edit", branch: str | None = None
+) -> dict:
     try:
-        return collections.create_collection(workspace, body.name)
+        return collections.create_collection(workspace, body.name, _check_editable(source), branch)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
 
 @app.post("/api/apic/workspaces/{workspace}/collections/import")
-async def apic_import_collection(workspace: str, data: dict) -> dict:
+async def apic_import_collection(
+    workspace: str, data: dict, source: str = "edit", branch: str | None = None
+) -> dict:
     try:
-        return collections.import_collection(workspace, data)
+        return collections.import_collection(workspace, data, _check_editable(source), branch)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
@@ -327,27 +335,37 @@ async def apic_github_status() -> dict:
 
 
 @app.post("/api/apic/workspaces/{workspace}/collections/import-github")
-async def apic_import_github(workspace: str, body: GithubImportBody) -> dict:
+async def apic_import_github(
+    workspace: str, body: GithubImportBody, source: str = "edit", branch: str | None = None
+) -> dict:
     """GitHub 레포 URL에서 Bruno/Postman 콜렉션을 찾아 workspace에 추가한다."""
     try:
-        return {"imported": await collections.import_from_github(workspace, body.url)}
+        return {
+            "imported": await collections.import_from_github(
+                workspace, body.url, _check_editable(source), branch
+            )
+        }
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
 
 @app.post("/api/apic/workspaces/{workspace}/collections/{collection_id}/sync")
-async def apic_sync_collection(workspace: str, collection_id: str) -> dict:
+async def apic_sync_collection(
+    workspace: str, collection_id: str, source: str = "edit", branch: str | None = None
+) -> dict:
     """GitHub에 연결된 콜렉션을 레포 최신 내용으로 갱신 (id 유지 → 워크플로우 참조 보존)."""
     try:
-        return await collections.sync_collection(workspace, collection_id)
+        return await collections.sync_collection(workspace, collection_id, _check_editable(source), branch)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
 
 @app.get("/api/apic/workspaces/{workspace}/collections/{collection_id}")
-async def apic_get_collection(workspace: str, collection_id: str) -> dict:
+async def apic_get_collection(
+    workspace: str, collection_id: str, source: str = "prod", branch: str | None = None
+) -> dict:
     try:
-        doc = collections.load_collection(workspace, collection_id)
+        doc = collections.load_collection(workspace, collection_id, _check_source(source), branch)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     if doc is None:
@@ -356,20 +374,24 @@ async def apic_get_collection(workspace: str, collection_id: str) -> dict:
 
 
 @app.put("/api/apic/workspaces/{workspace}/collections/{collection_id}", response_model=SaveResult)
-async def apic_save_collection(workspace: str, collection_id: str, doc: dict) -> SaveResult:
+async def apic_save_collection(
+    workspace: str, collection_id: str, doc: dict, source: str = "edit", branch: str | None = None
+) -> SaveResult:
     if doc.get("id") != collection_id:
         raise HTTPException(400, "경로의 id와 본문의 id가 일치하지 않습니다")
     try:
-        collections.save_collection(workspace, doc)
+        collections.save_collection(workspace, doc, _check_editable(source), branch)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     return SaveResult(status="saved")
 
 
 @app.delete("/api/apic/workspaces/{workspace}/collections/{collection_id}", response_model=SaveResult)
-async def apic_delete_collection(workspace: str, collection_id: str) -> SaveResult:
+async def apic_delete_collection(
+    workspace: str, collection_id: str, source: str = "edit", branch: str | None = None
+) -> SaveResult:
     try:
-        deleted = collections.delete_collection(workspace, collection_id)
+        deleted = collections.delete_collection(workspace, collection_id, _check_editable(source), branch)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     if not deleted:
@@ -378,9 +400,11 @@ async def apic_delete_collection(workspace: str, collection_id: str) -> SaveResu
 
 
 @app.get("/api/apic/workspaces/{workspace}/collections/{collection_id}/export")
-async def apic_export_collection(workspace: str, collection_id: str, format: str = "bruno") -> dict:
+async def apic_export_collection(
+    workspace: str, collection_id: str, format: str = "bruno", source: str = "prod", branch: str | None = None
+) -> dict:
     try:
-        doc = collections.load_collection(workspace, collection_id)
+        doc = collections.load_collection(workspace, collection_id, _check_source(source), branch)
         if doc is None:
             raise HTTPException(404, "콜렉션을 찾을 수 없습니다")
         return collections.export_collection(doc, format)

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 
-import { api } from "../../api/client";
+import { api, type EditFileEntry } from "../../api/client";
+import { FILE_STATE_META } from "../edit/EditPage";
 import {
   appendItem,
   emptyRequest,
@@ -27,13 +28,22 @@ function countRequests(items: ApicItem[]): number {
 /**
  * API 콜렉션 화면 — Bruno 스타일 3영역: workspace 선택 → 콜렉션/폴더/요청 트리(좌) →
  * 요청 편집·전송 또는 콜렉션 개요(우). 문서 편집은 디바운스 자동 저장.
+ *
+ * 워크플로우와 동일한 브랜치 편집 플로우 — 항상 편집 worktree(develop/feature)를
+ * 보고, 편집(canEdit)은 수정 모드(feature 브랜치)에서만 활성화된다.
  */
 export function ApiClientPage({
   ws,
   onSelectWs,
+  canEdit = true,
+  collectionStates,
+  onChanged,
 }: {
   ws?: string;
   onSelectWs: (ws: string | null) => void;
+  canEdit?: boolean;
+  collectionStates?: Map<string, EditFileEntry>; // 콜렉션 id → 파일 상태 (배지)
+  onChanged?: () => void; // 저장/삭제 후 상태 갱신용
 }) {
   const [workspaces, setWorkspaces] = useState<ApicWorkspace[] | null>(null);
   const [cols, setCols] = useState<ApicCollectionSummary[] | null>(null);
@@ -100,6 +110,7 @@ export function ApiClientPage({
 
   /** 문서 갱신 + 디바운스 저장 + 사이드바 요약(이름/요청 수) 동기화 */
   function mutateDoc(cid: string, update: (doc: ApicCollection) => ApicCollection) {
+    if (!canEdit) return; // 읽기 전용(develop) — 수정 모드에서만 편집
     setDocs((cur) => {
       const doc = cur[cid];
       if (!doc) return cur;
@@ -129,6 +140,7 @@ export function ApiClientPage({
     try {
       await api.apicSaveCollection(ws, doc);
       setSaveState("saved");
+      onChanged?.(); // 브랜치 파일 상태(수정됨 배지 등) 갱신
     } catch (e) {
       setSaveState("error");
       setError(`저장 실패: ${(e as Error).message}`);
@@ -239,6 +251,7 @@ export function ApiClientPage({
       setCols(await api.apicListCollections(ws));
       setDocs(({ [cid]: _, ...rest }) => rest);
       if (sel?.cid === cid) setSel(null);
+      onChanged?.();
     } catch (e) {
       setError((e as Error).message);
     }
@@ -323,18 +336,20 @@ export function ApiClientPage({
                     <span className="domain-caret">{open ? "▾" : "▸"}</span>
                     <span className="apic-row-name">{item.name}</span>
                   </button>
-                  <span className="apic-row-actions">
-                    <button className="icon-btn" title="요청 추가" onClick={() => addRequest(cid, path)}>
-                      +
-                    </button>
-                    <button
-                      className="icon-btn danger"
-                      title="폴더 삭제"
-                      onClick={() => deleteItem(cid, path, item.name)}
-                    >
-                      ✕
-                    </button>
-                  </span>
+                  {canEdit ? (
+                    <span className="apic-row-actions">
+                      <button className="icon-btn" title="요청 추가" onClick={() => addRequest(cid, path)}>
+                        +
+                      </button>
+                      <button
+                        className="icon-btn danger"
+                        title="폴더 삭제"
+                        onClick={() => deleteItem(cid, path, item.name)}
+                      >
+                        ✕
+                      </button>
+                    </span>
+                  ) : null}
                 </div>
                 {open ? renderItems(cid, item.items, path) : null}
               </li>
@@ -351,15 +366,17 @@ export function ApiClientPage({
                   </span>
                   <span className="apic-row-name">{item.name}</span>
                 </button>
-                <span className="apic-row-actions">
-                  <button
-                    className="icon-btn danger"
-                    title="요청 삭제"
-                    onClick={() => deleteItem(cid, path, item.name)}
-                  >
-                    ✕
-                  </button>
-                </span>
+                {canEdit ? (
+                  <span className="apic-row-actions">
+                    <button
+                      className="icon-btn danger"
+                      title="요청 삭제"
+                      onClick={() => deleteItem(cid, path, item.name)}
+                    >
+                      ✕
+                    </button>
+                  </span>
+                ) : null}
               </div>
             </li>
           );
@@ -394,18 +411,29 @@ export function ApiClientPage({
                 </option>
               ))}
             </select>
-            <button className="icon-btn" title="workspace 추가" onClick={() => void createWorkspace()}>
-              +
-            </button>
-            <button
-              className="icon-btn danger"
-              title="workspace 삭제"
-              onClick={() => void deleteWorkspace()}
-              disabled={!ws}
-            >
-              ✕
-            </button>
+            {canEdit ? (
+              <>
+                <button className="icon-btn" title="workspace 추가" onClick={() => void createWorkspace()}>
+                  +
+                </button>
+                <button
+                  className="icon-btn danger"
+                  title="workspace 삭제"
+                  onClick={() => void deleteWorkspace()}
+                  disabled={!ws}
+                >
+                  ✕
+                </button>
+              </>
+            ) : null}
           </div>
+
+          {!canEdit ? (
+            <p className="muted small-text">
+              읽기 전용 — 콜렉션을 수정하려면 상단에서 feature 브랜치를 만들어 수정 모드로
+              들어가세요.
+            </p>
+          ) : null}
 
           {error ? <div className="error-banner">{error}</div> : null}
 
@@ -417,28 +445,30 @@ export function ApiClientPage({
             ) : null
           ) : (
             <>
-              <div className="apic-col-actions">
-                <button className="link small" onClick={() => void createCollection()}>
-                  + 콜렉션
-                </button>
-                <button className="link small" onClick={() => fileRef.current?.click()}>
-                  가져오기(JSON)
-                </button>
-                <button
-                  className="link small"
-                  onClick={() => void importFromGithub()}
-                  disabled={importing}
-                >
-                  {importing ? "가져오는 중…" : "가져오기(GitHub)"}
-                </button>
-                <input
-                  ref={fileRef}
-                  type="file"
-                  accept=".json,application/json"
-                  hidden
-                  onChange={(e) => void importCollection(e)}
-                />
-              </div>
+              {canEdit ? (
+                <div className="apic-col-actions">
+                  <button className="link small" onClick={() => void createCollection()}>
+                    + 콜렉션
+                  </button>
+                  <button className="link small" onClick={() => fileRef.current?.click()}>
+                    가져오기(JSON)
+                  </button>
+                  <button
+                    className="link small"
+                    onClick={() => void importFromGithub()}
+                    disabled={importing}
+                  >
+                    {importing ? "가져오는 중…" : "가져오기(GitHub)"}
+                  </button>
+                  <input
+                    ref={fileRef}
+                    type="file"
+                    accept=".json,application/json"
+                    hidden
+                    onChange={(e) => void importCollection(e)}
+                  />
+                </div>
+              ) : null}
 
               <div className="apic-gh-status">
                 {ghStatus?.logged_in ? (
@@ -473,19 +503,27 @@ export function ApiClientPage({
                         >
                           <span className="domain-caret">{open ? "▾" : "▸"}</span>
                           <span className="domain-name">{c.name}</span>
+                          {(() => {
+                            const stEntry = collectionStates?.get(c.id);
+                            if (!stEntry) return null;
+                            const meta = FILE_STATE_META[stEntry.state];
+                            return <span className={`state-badge sm ${meta.cls}`}>{meta.label}</span>;
+                          })()}
                           <span className="domain-count">{c.request_count}</span>
                         </button>
                         {open && docs[c.id] ? (
                           <div className="apic-tree-root">
                             {renderItems(c.id, docs[c.id].items, [])}
-                            <div className="apic-tree-add">
-                              <button className="link small" onClick={() => addRequest(c.id, [])}>
-                                + 요청
-                              </button>
-                              <button className="link small" onClick={() => addFolder(c.id, [])}>
-                                + 폴더
-                              </button>
-                            </div>
+                            {canEdit ? (
+                              <div className="apic-tree-add">
+                                <button className="link small" onClick={() => addRequest(c.id, [])}>
+                                  + 요청
+                                </button>
+                                <button className="link small" onClick={() => addFolder(c.id, [])}>
+                                  + 폴더
+                                </button>
+                              </div>
+                            ) : null}
                           </div>
                         ) : null}
                       </div>
@@ -526,6 +564,7 @@ export function ApiClientPage({
           <CollectionOverview
             ws={ws}
             doc={selDoc}
+            canEdit={canEdit}
             onChange={(doc) => mutateDoc(doc.id, () => doc)}
             onDelete={() => void deleteCollection(selDoc.id)}
           />

@@ -87,33 +87,37 @@ export interface EditState {
 
 export type FileState = "unstaged" | "staged" | "committed" | "pushed";
 
+// kind: workflow(워크플로우) | collection(API 콜렉션) | file(그 외 데이터 파일)
 export interface EditFileEntry {
   path: string;
-  kind: "workflow" | "file";
+  kind: "workflow" | "collection" | "file";
   state: FileState;
   change: "A" | "M" | "D";
   id?: string;
   domain?: string;
   task?: string;
+  workspace?: string;
   name?: string;
 }
 
 export interface PendingEntry {
   path: string;
-  kind: "workflow" | "file";
+  kind: "workflow" | "collection" | "file";
   change: "A" | "M" | "D";
   id?: string;
   domain?: string;
   task?: string;
+  workspace?: string;
   name?: string;
 }
 
 export interface ConflictFile {
   path: string;
-  kind: "workflow" | "file";
+  kind: "workflow" | "collection" | "file";
   id?: string;
   domain?: string;
   task?: string;
+  workspace?: string;
   name?: string;
   base: string | null;
   ours: string | null; // develop 쪽
@@ -157,13 +161,16 @@ export const api = {
   deleteWorkflow: (id: string) =>
     req<{ status: string }>(`/api/workflows/${id}${src("edit")}`, { method: "DELETE" }),
 
-  searchCatalog: (q = "") =>
+  // 카탈로그(워크플로우용 API 인덱스) — edit 소스면 편집 브랜치의 콜렉션 기준
+  searchCatalog: (q = "", source?: DataSource) =>
     req<{ results: CatalogEntry[]; catalog_version: string | null }>(
-      `/api/catalog/search?q=${encodeURIComponent(q)}`,
+      `/api/catalog/search?q=${encodeURIComponent(q)}${source === "edit" ? `&${src("edit").slice(1)}` : ""}`,
     ),
 
-  getEnvironments: () =>
-    req<{ values: EnvironmentValues }>("/api/catalog/environments").then((r) => r.values),
+  getEnvironments: (source?: DataSource) =>
+    req<{ values: EnvironmentValues }>(`/api/catalog/environments${src(source)}`).then(
+      (r) => r.values,
+    ),
 
   // 도메인 → 팔레트 색상 id 매핑
   getDomainColors: (source?: DataSource) =>
@@ -278,58 +285,62 @@ export const api = {
     }),
 
   // ---- API 콜렉션 (Bruno 스타일 workspace/collection) ----
+  // 워크플로우와 동일한 브랜치 편집 플로우 — API 콜렉션 화면은 항상 편집
+  // worktree(develop 또는 URL의 feature 브랜치)를 본다. 쓰기는 서버가 prod를 403.
   apicListWorkspaces: () =>
-    req<{ workspaces: ApicWorkspace[] }>("/api/apic/workspaces").then((r) => r.workspaces),
+    req<{ workspaces: ApicWorkspace[] }>(`/api/apic/workspaces${src("edit")}`).then(
+      (r) => r.workspaces,
+    ),
 
   apicCreateWorkspace: (name: string) =>
-    req<{ status: string }>("/api/apic/workspaces", {
+    req<{ status: string }>(`/api/apic/workspaces${src("edit")}`, {
       method: "POST",
       body: JSON.stringify({ name }),
     }),
 
   apicDeleteWorkspace: (ws: string) =>
-    req<{ status: string }>(`/api/apic/workspaces/${encodeURIComponent(ws)}`, {
+    req<{ status: string }>(`/api/apic/workspaces/${encodeURIComponent(ws)}${src("edit")}`, {
       method: "DELETE",
     }),
 
   apicListCollections: (ws: string) =>
     req<{ collections: ApicCollectionSummary[] }>(
-      `/api/apic/workspaces/${encodeURIComponent(ws)}/collections`,
+      `/api/apic/workspaces/${encodeURIComponent(ws)}/collections${src("edit")}`,
     ).then((r) => r.collections),
 
   apicCreateCollection: (ws: string, name: string) =>
-    req<ApicCollection>(`/api/apic/workspaces/${encodeURIComponent(ws)}/collections`, {
-      method: "POST",
-      body: JSON.stringify({ name }),
-    }),
+    req<ApicCollection>(
+      `/api/apic/workspaces/${encodeURIComponent(ws)}/collections${src("edit")}`,
+      { method: "POST", body: JSON.stringify({ name }) },
+    ),
 
   apicGetCollection: (ws: string, id: string) =>
     req<ApicCollection>(
-      `/api/apic/workspaces/${encodeURIComponent(ws)}/collections/${encodeURIComponent(id)}`,
+      `/api/apic/workspaces/${encodeURIComponent(ws)}/collections/${encodeURIComponent(id)}${src("edit")}`,
     ),
 
   apicSaveCollection: (ws: string, doc: ApicCollection) =>
     req<{ status: string }>(
-      `/api/apic/workspaces/${encodeURIComponent(ws)}/collections/${encodeURIComponent(doc.id)}`,
+      `/api/apic/workspaces/${encodeURIComponent(ws)}/collections/${encodeURIComponent(doc.id)}${src("edit")}`,
       { method: "PUT", body: JSON.stringify(doc) },
     ),
 
   apicDeleteCollection: (ws: string, id: string) =>
     req<{ status: string }>(
-      `/api/apic/workspaces/${encodeURIComponent(ws)}/collections/${encodeURIComponent(id)}`,
+      `/api/apic/workspaces/${encodeURIComponent(ws)}/collections/${encodeURIComponent(id)}${src("edit")}`,
       { method: "DELETE" },
     ),
 
   apicImportCollection: (ws: string, data: unknown) =>
     req<ApicCollection>(
-      `/api/apic/workspaces/${encodeURIComponent(ws)}/collections/import`,
+      `/api/apic/workspaces/${encodeURIComponent(ws)}/collections/import${src("edit")}`,
       { method: "POST", body: JSON.stringify(data) },
     ),
 
   // GitHub 연결 콜렉션을 레포 최신 내용으로 갱신 (id 유지 → 워크플로우 참조 보존)
   apicSyncCollection: (ws: string, id: string) =>
     req<ApicCollection>(
-      `/api/apic/workspaces/${encodeURIComponent(ws)}/collections/${encodeURIComponent(id)}/sync`,
+      `/api/apic/workspaces/${encodeURIComponent(ws)}/collections/${encodeURIComponent(id)}/sync${src("edit")}`,
       { method: "POST" },
     ),
 
@@ -340,13 +351,13 @@ export const api = {
   // GitHub 레포에서 Bruno/Postman 콜렉션 일괄 가져오기
   apicImportGithub: (ws: string, url: string) =>
     req<{ imported: ApicCollectionSummary[] }>(
-      `/api/apic/workspaces/${encodeURIComponent(ws)}/collections/import-github`,
+      `/api/apic/workspaces/${encodeURIComponent(ws)}/collections/import-github${src("edit")}`,
       { method: "POST", body: JSON.stringify({ url }) },
     ).then((r) => r.imported),
 
   apicExportCollection: (ws: string, id: string, format: "bruno" | "postman") =>
     req<Record<string, unknown>>(
-      `/api/apic/workspaces/${encodeURIComponent(ws)}/collections/${encodeURIComponent(id)}/export?format=${format}`,
+      `/api/apic/workspaces/${encodeURIComponent(ws)}/collections/${encodeURIComponent(id)}/export?format=${format}&${src("edit").slice(1)}`,
     ),
 
   proxy: (payload: {

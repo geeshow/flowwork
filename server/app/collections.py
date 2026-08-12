@@ -24,8 +24,13 @@ from typing import Any
 
 import httpx
 
-from . import bruno
-from .config import COLLECTIONS_DIR
+from . import bruno, storage
+
+# 데이터 소스: prod(운영 master 트리, 읽기 전용) | edit(브랜치별 편집 worktree).
+# 워크플로우와 동일한 브랜치 편집 플로우 — 쓰기는 편집 worktree에서만 허용된다.
+def _dir(source: str = "prod", branch: str | None = None):
+    return storage.data_root(source, branch) / "api-collections"
+
 
 # 경로 traversal 방지 — storage와 동일한 규칙(유니코드 단어문자 + 하이픈).
 _SAFE_SEGMENT = re.compile(r"^[-\w]+$", re.UNICODE)
@@ -54,26 +59,27 @@ def _new_id() -> str:
 # ---------------------------------------------------------------------------
 # Workspace CRUD
 # ---------------------------------------------------------------------------
-def list_workspaces() -> list[dict[str, Any]]:
-    if not COLLECTIONS_DIR.exists():
+def list_workspaces(source: str = "prod", branch: str | None = None) -> list[dict[str, Any]]:
+    root = _dir(source, branch)
+    if not root.exists():
         return []
     out = []
-    for d in sorted(COLLECTIONS_DIR.iterdir()):
+    for d in sorted(root.iterdir()):
         if not d.is_dir():
             continue
         out.append({"name": d.name, "collection_count": len(list(d.glob("*.json")))})
     return out
 
 
-def create_workspace(name: str) -> None:
-    path = COLLECTIONS_DIR / _safe_ws(name)
+def create_workspace(name: str, source: str = "prod", branch: str | None = None) -> None:
+    path = _dir(source, branch) / _safe_ws(name)
     if path.exists():
         raise ValueError(f"이미 존재하는 workspace입니다: {name!r}")
     path.mkdir(parents=True)
 
 
-def delete_workspace(name: str) -> bool:
-    path = COLLECTIONS_DIR / _safe_ws(name)
+def delete_workspace(name: str, source: str = "prod", branch: str | None = None) -> bool:
+    path = _dir(source, branch) / _safe_ws(name)
     if not path.is_dir():
         return False
     shutil.rmtree(path)
@@ -95,8 +101,8 @@ def _count_requests(items: list[Any]) -> int:
     return n
 
 
-def list_collections(workspace: str) -> list[dict[str, Any]]:
-    ws_dir = COLLECTIONS_DIR / _safe_ws(workspace)
+def list_collections(workspace: str, source: str = "prod", branch: str | None = None) -> list[dict[str, Any]]:
+    ws_dir = _dir(source, branch) / _safe_ws(workspace)
     if not ws_dir.is_dir():
         raise ValueError(f"존재하지 않는 workspace입니다: {workspace!r}")
     out = []
@@ -125,9 +131,9 @@ def _validate_doc(doc: dict[str, Any]) -> None:
         raise ValueError("콜렉션 문서의 items는 배열이어야 합니다")
 
 
-def save_collection(workspace: str, doc: dict[str, Any]) -> None:
+def save_collection(workspace: str, doc: dict[str, Any], source: str = "prod", branch: str | None = None) -> None:
     _validate_doc(doc)
-    ws_dir = COLLECTIONS_DIR / _safe_ws(workspace)
+    ws_dir = _dir(source, branch) / _safe_ws(workspace)
     if not ws_dir.is_dir():
         raise ValueError(f"존재하지 않는 workspace입니다: {workspace!r}")
     path = ws_dir / f"{_safe_id(doc['id'])}.json"
@@ -136,7 +142,7 @@ def save_collection(workspace: str, doc: dict[str, Any]) -> None:
     tmp.replace(path)  # 원자적 교체
 
 
-def create_collection(workspace: str, name: str) -> dict[str, Any]:
+def create_collection(workspace: str, name: str, source: str = "prod", branch: str | None = None) -> dict[str, Any]:
     name = name.strip()
     if not name:
         raise ValueError("콜렉션 이름이 비어있습니다")
@@ -147,19 +153,23 @@ def create_collection(workspace: str, name: str) -> dict[str, Any]:
         "environments": [],
         "activeEnvironment": None,
     }
-    save_collection(workspace, doc)
+    save_collection(workspace, doc, source, branch)
     return doc
 
 
-def load_collection(workspace: str, collection_id: str) -> dict[str, Any] | None:
-    path = COLLECTIONS_DIR / _safe_ws(workspace) / f"{_safe_id(collection_id)}.json"
+def load_collection(
+    workspace: str, collection_id: str, source: str = "prod", branch: str | None = None
+) -> dict[str, Any] | None:
+    path = _dir(source, branch) / _safe_ws(workspace) / f"{_safe_id(collection_id)}.json"
     if not path.exists():
         return None
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def delete_collection(workspace: str, collection_id: str) -> bool:
-    path = COLLECTIONS_DIR / _safe_ws(workspace) / f"{_safe_id(collection_id)}.json"
+def delete_collection(
+    workspace: str, collection_id: str, source: str = "prod", branch: str | None = None
+) -> bool:
+    path = _dir(source, branch) / _safe_ws(workspace) / f"{_safe_id(collection_id)}.json"
     if not path.exists():
         return False
     path.unlink()
@@ -169,7 +179,9 @@ def delete_collection(workspace: str, collection_id: str) -> bool:
 # ---------------------------------------------------------------------------
 # Import — Bruno 콜렉션 JSON / Postman Collection v2.1 자동 감지
 # ---------------------------------------------------------------------------
-def import_collection(workspace: str, data: dict[str, Any]) -> dict[str, Any]:
+def import_collection(
+    workspace: str, data: dict[str, Any], source: str = "prod", branch: str | None = None
+) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ValueError("콜렉션 JSON 객체가 아닙니다")
     if isinstance(data.get("info"), dict) and "item" in data:
@@ -179,7 +191,7 @@ def import_collection(workspace: str, data: dict[str, Any]) -> dict[str, Any]:
     else:
         raise ValueError("지원하지 않는 형식입니다 (Bruno 콜렉션 JSON 또는 Postman v2.1)")
     doc["id"] = _new_id()
-    save_collection(workspace, doc)
+    save_collection(workspace, doc, source, branch)
     return doc
 
 
@@ -649,7 +661,9 @@ async def _fetch_repo_docs(url: str) -> list[dict[str, Any]]:
     return docs
 
 
-async def import_from_github(workspace: str, url: str) -> list[dict[str, Any]]:
+async def import_from_github(
+    workspace: str, url: str, source: str = "prod", branch: str | None = None
+) -> list[dict[str, Any]]:
     """GitHub 레포에서 콜렉션들을 찾아 workspace에 저장하고 요약 목록을 반환한다.
 
     레포 연결 정보(source)를 콜렉션에 남겨, 이후 `sync_collection`으로 같은 콜렉션
@@ -660,40 +674,42 @@ async def import_from_github(workspace: str, url: str) -> list[dict[str, Any]]:
     for doc in docs:
         doc["id"] = _new_id()
         doc["source"] = {"type": "github", "url": url.strip()}
-        save_collection(workspace, doc)
+        save_collection(workspace, doc, source, branch)
         imported.append(
             {"id": doc["id"], "name": doc["name"], "request_count": _count_requests(doc["items"])}
         )
     return imported
 
 
-async def sync_collection(workspace: str, collection_id: str) -> dict[str, Any]:
+async def sync_collection(
+    workspace: str, collection_id: str, source: str = "prod", branch: str | None = None
+) -> dict[str, Any]:
     """GitHub에 연결된 콜렉션을 레포 최신 내용으로 in-place 갱신한다.
 
     콜렉션 id가 유지되므로 (폴더 경로·이름이 같은 요청에 한해) 워크플로우 참조가
     그대로 살아있고, 실시간 인덱스를 통해 변경이 즉시 반영된다.
     """
-    doc = load_collection(workspace, collection_id)
+    doc = load_collection(workspace, collection_id, source, branch)
     if doc is None:
         raise ValueError("콜렉션을 찾을 수 없습니다")
-    source = doc.get("source") or {}
-    if source.get("type") != "github" or not source.get("url"):
+    origin_meta = doc.get("source") or {}
+    if origin_meta.get("type") != "github" or not origin_meta.get("url"):
         raise ValueError("GitHub에 연결된 콜렉션이 아닙니다 (source 없음)")
 
-    docs = await _fetch_repo_docs(source["url"])
+    docs = await _fetch_repo_docs(origin_meta["url"])
     # 레포에 콜렉션이 하나면 그것, 여럿이면 이름이 같은 것을 매칭
     matched = docs[0] if len(docs) == 1 else next((d for d in docs if d["name"] == doc["name"]), None)
     if matched is None:
         raise ValueError(f"레포에서 '{doc['name']}' 콜렉션을 찾지 못했습니다")
 
     matched["id"] = doc["id"]  # id 유지 — 워크플로우 참조 보존
-    matched["source"] = source
+    matched["source"] = origin_meta
     # 사용자가 고른 활성 환경이 여전히 존재하면 유지
     old_active = doc.get("activeEnvironment")
     env_names = {e.get("name") for e in matched.get("environments") or []}
     if old_active and old_active in env_names:
         matched["activeEnvironment"] = old_active
-    save_collection(workspace, matched)
+    save_collection(workspace, matched, source, branch)
     return matched
 
 

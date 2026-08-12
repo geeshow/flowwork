@@ -178,11 +178,14 @@ def test_domain_color_rejects_non_hex(client):
 
 
 def test_catalog_search_indexes_api_collections(client):
-    """워크플로우용 API 인덱스는 API 콜렉션에 등록된 요청만 노출한다."""
-    assert client.get("/api/catalog/search").json()["results"] == []  # 콜렉션 없음 → 빈 인덱스
+    """워크플로우용 API 인덱스는 API 콜렉션에 등록된 요청만 노출한다.
 
-    client.post("/api/apic/workspaces", json={"name": "payments"})
-    doc = client.post("/api/apic/workspaces/payments/collections", json={"name": "정산"}).json()
+    콜렉션도 브랜치 편집 플로우를 따르므로 쓰기/조회 모두 source=edit로 검증한다.
+    """
+    assert client.get("/api/catalog/search", params=EDIT).json()["results"] == []  # 콜렉션 없음
+
+    client.post("/api/apic/workspaces", json={"name": "payments"}, params=EDIT)
+    doc = client.post("/api/apic/workspaces/payments/collections", json={"name": "정산"}, params=EDIT).json()
     doc["items"] = [
         {
             "type": "http",
@@ -196,9 +199,9 @@ def test_catalog_search_indexes_api_collections(client):
             },
         }
     ]
-    client.put(f"/api/apic/workspaces/payments/collections/{doc['id']}", json=doc)
+    client.put(f"/api/apic/workspaces/payments/collections/{doc['id']}", json=doc, params=EDIT)
 
-    resp = client.get("/api/catalog/search", params={"q": "정산"}).json()
+    resp = client.get("/api/catalog/search", params={**EDIT, "q": "정산"}).json()
     names = [e["name"] for e in resp["results"]]
     assert "정산 조회" in names
 

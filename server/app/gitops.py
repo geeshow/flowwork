@@ -196,24 +196,33 @@ def _read_blob(ref: str, path: str, cwd: Path) -> str | None:
 
 
 def _summarize(path: str, content: str | None) -> dict[str, Any]:
-    """데이터 파일 경로 → 표시용 요약. 워크플로우 파일이면 도메인/업무/이름 포함."""
+    """데이터 파일 경로 → 표시용 요약.
+
+    워크플로우 파일이면 도메인/업무/이름, API 콜렉션 파일이면 workspace/이름 포함.
+    """
     entry: dict[str, Any] = {"path": path, "kind": "file"}
     parts = Path(path).parts
+    data: dict[str, Any] = {}
+    if content:
+        try:
+            data = json.loads(content)
+        except json.JSONDecodeError:
+            data = {}
     if parts[0] == "workflows" and len(parts) == 4:
         entry.update(kind="workflow", domain=parts[1], task=parts[2], id=Path(path).stem)
-        if content:
-            try:
-                data = json.loads(content)
-                entry.update(
-                    id=data.get("id", entry["id"]),
-                    domain=data.get("domain", entry["domain"]),
-                    task=data.get("task", entry["task"]),
-                    name=data.get("name", entry["id"]),
-                )
-            except json.JSONDecodeError:
-                entry["name"] = entry["id"]
-        else:
-            entry["name"] = entry["id"]
+        entry.update(
+            id=data.get("id", entry["id"]),
+            domain=data.get("domain", entry["domain"]),
+            task=data.get("task", entry["task"]),
+            name=data.get("name", entry["id"]),
+        )
+    elif parts[0] == "api-collections" and len(parts) == 3:
+        entry.update(
+            kind="collection",
+            workspace=parts[1],
+            id=data.get("id", Path(path).stem),
+            name=data.get("name", Path(path).stem),
+        )
     return entry
 
 
@@ -247,8 +256,8 @@ def file_states(branch: str | None = None) -> dict[str, Any]:
         entry.update(state=state, change=change)
         states[path] = entry
 
-    # 1) worktree/index (unstaged, staged)
-    for x, y, path in _parse_porcelain_z(_git("status", "--porcelain", "-z", cwd=wt)):
+    # 1) worktree/index (unstaged, staged) — -uall: 미추적 디렉토리도 파일 단위로
+    for x, y, path in _parse_porcelain_z(_git("status", "--porcelain", "-uall", "-z", cwd=wt)):
         if y != " " and y != "?":
             put(path, "unstaged", "D" if y == "D" else ("A" if x == "?" or y == "A" else "M"))
         elif y == "?":

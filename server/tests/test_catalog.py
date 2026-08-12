@@ -10,8 +10,15 @@ from app.catalog import apic_request_to_template, extract_template_variables
 
 @pytest.fixture()
 def client(monkeypatch):
-    tmp = tempfile.mkdtemp()
-    monkeypatch.setenv("FLOWWORK_DATA_DIR", tmp)
+    # 콜렉션 쓰기는 source=edit(develop worktree)만 허용 — edit(develop) 경로를
+    # prod(DATA_DIR)와 같은 디렉토리로 배치해 기본 파라미터로 읽기/쓰기를 검증한다.
+    from pathlib import Path
+
+    tmp_parent = Path(tempfile.mkdtemp())
+    tmp = tmp_parent / "develop"
+    tmp.mkdir()
+    monkeypatch.setenv("FLOWWORK_DATA_DIR", str(tmp))
+    monkeypatch.setenv("FLOWWORK_EDIT_DATA_DIR", str(tmp_parent))
     import importlib
 
     import app.catalog as catalog

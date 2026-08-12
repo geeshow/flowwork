@@ -141,12 +141,16 @@ def _walk_items(
         )
 
 
-def build_entries() -> list[CatalogEntry]:
-    """모든 workspace의 모든 콜렉션을 평탄화한 엔트리 목록."""
+def build_entries(source: str = "prod", branch: str | None = None) -> list[CatalogEntry]:
+    """모든 workspace의 모든 콜렉션을 평탄화한 엔트리 목록.
+
+    source=edit(+branch)이면 편집 worktree의 콜렉션 기준 — 편집 메뉴의 워크플로우
+    편집/실행이 브랜치에서 수정 중인 API를 그대로 쓸 수 있다.
+    """
     entries: list[CatalogEntry] = []
-    for ws in store.list_workspaces():
-        for summary in store.list_collections(ws["name"]):
-            doc = store.load_collection(ws["name"], summary["id"])
+    for ws in store.list_workspaces(source, branch):
+        for summary in store.list_collections(ws["name"], source, branch):
+            doc = store.load_collection(ws["name"], summary["id"], source, branch)
             if doc is None:
                 continue
             _walk_items(
@@ -160,16 +164,16 @@ def build_entries() -> list[CatalogEntry]:
     return entries
 
 
-def environments() -> dict[str, str]:
+def environments(source: str = "prod", branch: str | None = None) -> dict[str, str]:
     """모든 콜렉션의 모든 환경을 병합한 key→value 맵.
 
     (구 카탈로그의 environments/ 병합과 동일한 의미 — 콜렉션 간 공용 변수
     참조를 허용한다. vault:// 참조는 그대로 두고 프록시가 호출 직전 치환.)
     """
     merged: dict[str, str] = {}
-    for ws in store.list_workspaces():
-        for summary in store.list_collections(ws["name"]):
-            doc = store.load_collection(ws["name"], summary["id"])
+    for ws in store.list_workspaces(source, branch):
+        for summary in store.list_collections(ws["name"], source, branch):
+            doc = store.load_collection(ws["name"], summary["id"], source, branch)
             if doc is None:
                 continue
             for env in doc.get("environments") or []:
@@ -179,8 +183,10 @@ def environments() -> dict[str, str]:
     return merged
 
 
-def search(q: str = "", limit: int = 50) -> tuple[list[CatalogEntry], str | None]:
-    entries = build_entries()
+def search(
+    q: str = "", limit: int = 50, source: str = "prod", branch: str | None = None
+) -> tuple[list[CatalogEntry], str | None]:
+    entries = build_entries(source, branch)
     if not q:
         return entries[:limit], None
     needle = q.lower()
@@ -195,5 +201,5 @@ def search(q: str = "", limit: int = 50) -> tuple[list[CatalogEntry], str | None
     return hits[:limit], None
 
 
-def get_entry(entry_id_: str) -> CatalogEntry | None:
-    return next((e for e in build_entries() if e.id == entry_id_), None)
+def get_entry(entry_id_: str, source: str = "prod", branch: str | None = None) -> CatalogEntry | None:
+    return next((e for e in build_entries(source, branch) if e.id == entry_id_), None)

@@ -48,7 +48,7 @@ export function WorkflowRunner({ workflow, onOpenExecution, source = "prod" }: P
 
   useEffect(() => {
     let alive = true;
-    Promise.all([api.searchCatalog(""), api.getEnvironments(), api.listWorkflows(source)])
+    Promise.all([api.searchCatalog("", source), api.getEnvironments(source), api.listWorkflows(source)])
       .then(([cat, envs, wfs]) => {
         if (!alive) return;
         setCatalog(cat.results);

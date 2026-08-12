@@ -65,7 +65,7 @@ export function WorkflowEditor({ mode, id, initialDomain, initialTask, onSaved, 
   // 저장 = worktree 파일 쓰기 (커밋 전 로컬 임시 저장) — git 커밋/머지는 편집 메뉴에서.
   useEffect(() => {
     let alive = true;
-    Promise.all([api.searchCatalog(""), api.getEnvironments(), api.listWorkflows("edit"), api.getDomainColors("edit")])
+    Promise.all([api.searchCatalog("", "edit"), api.getEnvironments("edit"), api.listWorkflows("edit"), api.getDomainColors("edit")])
       .then(([cat, envs, wfs, colors]) => {
         if (!alive) return;
         setEntries(cat.results);

@@ -193,6 +193,51 @@ def test_merge_conflict_resolve_flow(client):
     assert "feature/cf-b" not in client.get("/api/edit/state").json()["feature_branches"]
 
 
+def test_collections_follow_branch_flow(client):
+    """API 콜렉션도 워크플로우처럼 브랜치 편집 플로우를 따른다."""
+    # 운영(prod) 직접 쓰기는 거부
+    assert client.post(
+        "/api/apic/workspaces", json={"name": "w1"}, params={"source": "prod"}
+    ).status_code == 403
+
+    # feature 브랜치에서 workspace/콜렉션 생성
+    b = client.post("/api/edit/branches", json={"name": "apis"}).json()["branch"]
+    eb = {"source": "edit", "branch": b}
+    client.post("/api/apic/workspaces", json={"name": "w1"}, params=eb)
+    doc = client.post("/api/apic/workspaces/w1/collections", json={"name": "주문 API"}, params=eb).json()
+
+    # 변경 상태에 kind=collection으로 나타난다 (unstaged)
+    files = client.get("/api/edit/status", params={"branch": b}).json()["files"]
+    col = next(f for f in files if f["kind"] == "collection")
+    assert col["name"] == "주문 API" and col["workspace"] == "w1" and col["state"] == "unstaged"
+
+    # develop/카탈로그에는 아직 없음 — 브랜치 격리
+    assert client.get("/api/apic/workspaces", params={"source": "edit"}).json()["workspaces"] == []
+    assert client.get("/api/catalog/search", params=eb).json()["results"] == []
+
+    # 커밋 → develop 머지 → develop 콜렉션/카탈로그에 반영
+    doc["items"] = [
+        {
+            "type": "http",
+            "name": "주문 목록",
+            "request": {"method": "GET", "url": "{{baseUrl}}/orders", "headers": [], "params": [], "body": {"mode": "none"}},
+        }
+    ]
+    client.put(f"/api/apic/workspaces/w1/collections/{doc['id']}", json=doc, params=eb)
+    client.post("/api/edit/commit", json={"branch": b, "message": "주문 API 추가"})
+    assert client.post("/api/edit/merge", json={"branch": b}).json()["status"] == "merged"
+    assert client.get("/api/apic/workspaces", params={"source": "edit"}).json()["workspaces"] == [
+        {"name": "w1", "collection_count": 1}
+    ]
+    names = [e["name"] for e in client.get("/api/catalog/search", params={"source": "edit"}).json()["results"]]
+    assert names == ["주문 목록"]
+
+    # 운영 반영 전에는 prod 카탈로그에 없음 → release 후 노출
+    assert client.get("/api/catalog/search").json()["results"] == []
+    assert client.post("/api/edit/release").json()["status"] == "released"
+    assert [e["name"] for e in client.get("/api/catalog/search").json()["results"]] == ["주문 목록"]
+
+
 def test_merge_abort_restores(client):
     a = client.post("/api/edit/branches", json={"name": "x"}).json()["branch"]
     b = client.post("/api/edit/branches", json={"name": "y"}).json()["branch"]
